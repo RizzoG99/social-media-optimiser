@@ -1,0 +1,15 @@
+name: macOS quality
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Unit and scenario tests
+        run: swift test --enable-code-coverage
+      - name: Build application bundle
+        run: ./scripts/build-app.sh
