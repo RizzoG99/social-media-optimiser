@@ -3,12 +3,22 @@ import SocialCore
 import UniformTypeIdentifiers
 
 struct EditorView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: EditorModel
     @State private var dragOrigin: EditState?
     @State private var magnifyOrigin: Double?
     @State private var cloneMode = false
     @State private var cloneSource: CGPoint?
     @State private var cloneRadius = 0.035
+
+    // Scope animations to interface state; rendered pixels and gesture geometry
+    // must always represent the current edit immediately.
+    private var interfaceAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.18)
+    }
+    private var disclosureTransition: AnyTransition {
+        reduceMotion ? .identity : .opacity.combined(with: .move(edge: .top))
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -49,9 +59,12 @@ struct EditorView: View {
                     canvas
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color(nsColor: .underPageBackgroundColor))
+                        .animation(interfaceAnimation, value: model.preview != nil)
                     Divider()
                     HStack {
                         Text(model.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            .contentTransition(.opacity)
+                            .animation(interfaceAnimation, value: model.status)
                         Spacer()
                         Text("sRGB").font(.caption.monospaced()).foregroundStyle(.secondary)
                     }.padding(12)
@@ -77,6 +90,9 @@ struct EditorView: View {
         .alert("Impossibile completare l’operazione", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
         } message: { Text(model.errorMessage ?? "") }
+        .transaction { transaction in
+            if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
+        }
         .onChange(of: model.sourceURL) { _, _ in cloneSource = nil }
         .onChange(of: model.preset) { _, _ in cloneSource = nil }
     }
@@ -101,6 +117,7 @@ struct EditorView: View {
                             }
                             context.stroke(path, with: .color(.white.opacity(0.55)), lineWidth: 0.6)
                         }.allowsHitTesting(false)
+                            .transition(.opacity)
                     }
                     if model.showGrid && model.preset.id == "youtube-banner" {
                         Rectangle().stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
@@ -122,6 +139,7 @@ struct EditorView: View {
                         Circle().stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [5, 4])).allowsHitTesting(false)
                     }
                 }
+                .animation(interfaceAnimation, value: model.showGrid)
                 .frame(width: width, height: height)
                 .clipped()
                 .overlay(Rectangle().stroke(.white.opacity(0.2), lineWidth: 1))
@@ -157,6 +175,7 @@ struct EditorView: View {
                 .accessibilityLabel("Anteprima ritagliata. Trascina per spostare la foto, pizzica per ingrandire.")
                 .accessibilityIdentifier("image-preview")
             }
+            .transition(reduceMotion ? .identity : .opacity)
         } else {
             ContentUnavailableView {
                 Label("Dai spazio alle tue foto", systemImage: "crop.rotate")
@@ -165,12 +184,14 @@ struct EditorView: View {
             } actions: {
                 Button("Apri immagine…", action: model.chooseImage).buttonStyle(.borderedProminent)
             }
+            .transition(reduceMotion ? .identity : .opacity)
         }
     }
 
     private var inspector: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                ZStack(alignment: .topLeading) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(model.preset.platform == .x ? "X (Twitter)" : model.preset.platform.rawValue).font(.caption).foregroundStyle(.secondary)
                     Text(model.preset.name).font(.title3.bold())
@@ -179,6 +200,10 @@ struct EditorView: View {
                     Text("Fonti controllate il 12/11/2026").font(.caption2).foregroundStyle(.secondary)
                     Link("Specifiche della piattaforma ↗", destination: model.preset.referenceURL).font(.caption)
                 }
+                .id(model.preset.id)
+                .transition(reduceMotion ? .identity : .opacity)
+                }
+                .animation(interfaceAnimation, value: model.preset.id)
                 Divider()
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Inquadratura").font(.headline)
@@ -209,9 +234,11 @@ struct EditorView: View {
                             Button("Sorgente") { cloneSource = nil }
                         }.font(.caption)
                         }
+                        .transition(disclosureTransition)
                     }
                     if !model.edit.cloneStrokes.isEmpty {
                         Button("Elimina ritocchi (\(model.edit.cloneStrokes.count))") { model.checkpoint(); model.clearCloneStrokes() }
+                            .transition(reduceMotion ? .identity : .opacity)
                     }
                     Text("I ritocchi si azzerano cambiando inquadratura o preset. Puoi annullarli con ⌘Z.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -229,6 +256,7 @@ struct EditorView: View {
                             Slider(value: $model.jpegQuality, in: 0.6...1)
                                 .accessibilityLabel("Qualità JPEG")
                         }
+                        .transition(disclosureTransition)
                     }
                     Text("Trasparenza su fondo bianco, anche in PNG. Ingrandire non aggiunge dettaglio alla foto.").font(.caption).foregroundStyle(.secondary)
                     Text("Colori sRGB per il web. Il JPEG usa compressione con perdita; PNG conserva i pixel del risultato. I social possono ricomprimere i file.")
@@ -241,6 +269,9 @@ struct EditorView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(20)
+            .animation(interfaceAnimation, value: cloneMode)
+            .animation(interfaceAnimation, value: model.edit.cloneStrokes.isEmpty)
+            .animation(interfaceAnimation, value: model.png)
         }.background(.regularMaterial)
     }
 
