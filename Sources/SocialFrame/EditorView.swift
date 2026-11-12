@@ -1,0 +1,254 @@
+import SwiftUI
+import SocialCore
+import UniformTypeIdentifiers
+
+struct EditorView: View {
+    @ObservedObject var model: EditorModel
+    @State private var dragOrigin: EditState?
+    @State private var magnifyOrigin: Double?
+    @State private var cloneMode = false
+    @State private var cloneSource: CGPoint?
+    @State private var cloneRadius = 0.035
+
+    var body: some View {
+        NavigationSplitView {
+            List(selection: Binding(get: { model.preset.id }, set: { id in
+                if let p = Preset.all.first(where: { $0.id == id }) { model.selectPreset(p) }
+            })) {
+                ForEach(Platform.allCases, id: \.self) { platform in
+                    Section(platform.rawValue) {
+                        ForEach(Preset.all.filter { $0.platform == platform }) { preset in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(preset.name).font(.body)
+                                Text("\(preset.width) × \(preset.height)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                            .padding(.vertical, 3)
+                            .tag(preset.id)
+                            .accessibilityIdentifier("preset-\(preset.id)")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Formati social")
+            .navigationSplitViewColumnWidth(min: 200, ideal: 225, max: 300)
+        } detail: {
+            HSplitView {
+                VStack(spacing: 0) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.sourceURL?.lastPathComponent ?? "Una foto, tutti i formati.")
+                                .font(.headline).lineLimit(1)
+                            Text(model.document == nil ? "Prepara le tue immagini per i social." : "\(model.imageDescription) · originale")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if model.isLoading || model.isExporting || model.isRendering { ProgressView().controlSize(.small) }
+                    }
+                    .padding(20)
+                    Divider()
+                    canvas
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(nsColor: .underPageBackgroundColor))
+                    Divider()
+                    HStack {
+                        Text(model.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        Spacer()
+                        Text("sRGB").font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }.padding(12)
+                }.frame(minWidth: 460)
+                inspector.frame(width: 265)
+            }
+            .navigationTitle("SocialFrame")
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button(action: model.chooseImage) { Label("Apri", systemImage: "photo.on.rectangle") }
+                    .help("Apri un’immagine (⌘O)").accessibilityIdentifier("open-image")
+                Button(action: model.undo) { Label("Annulla", systemImage: "arrow.uturn.backward") }.disabled(!model.canUndo)
+                Button(action: model.redo) { Label("Ripristina", systemImage: "arrow.uturn.forward") }.disabled(!model.canRedo)
+                Button(action: model.export) { Label("Esporta…", systemImage: "square.and.arrow.up") }
+                    .disabled(model.document == nil || model.isExporting).accessibilityIdentifier("export-image")
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first else { return false }
+            model.open(url); return true
+        }
+        .alert("Impossibile completare l’operazione", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
+            Button("OK") { model.errorMessage = nil }
+        } message: { Text(model.errorMessage ?? "") }
+        .onChange(of: model.sourceURL) { _, _ in cloneSource = nil }
+        .onChange(of: model.preset) { _, _ in cloneSource = nil }
+    }
+
+    @ViewBuilder private var canvas: some View {
+        if let image = model.preview {
+            GeometryReader { proxy in
+                let available = CGSize(width: max(1, proxy.size.width - 64), height: max(1, proxy.size.height - 64))
+                let ratio = CGFloat(model.preset.width) / CGFloat(model.preset.height)
+                let width = min(available.width, available.height * ratio)
+                let height = width / ratio
+                ZStack {
+                    Image(nsImage: image).resizable().interpolation(.high)
+                    if model.showGrid {
+                        Canvas { context, size in
+                            var path = Path()
+                            for step in 1...2 {
+                                let x = size.width * CGFloat(step) / 3
+                                let y = size.height * CGFloat(step) / 3
+                                path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
+                                path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: size.width, y: y))
+                            }
+                            context.stroke(path, with: .color(.white.opacity(0.55)), lineWidth: 0.6)
+                        }.allowsHitTesting(false)
+                    }
+                    if model.showGrid && model.preset.id == "youtube-banner" {
+                        Rectangle().stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                            .frame(width: width * 1235 / 2048, height: height * 338 / 1152)
+                            .overlay(alignment: .bottom) {
+                                Text("Area sicura indicativa").font(.caption2).padding(3)
+                                    .background(.black.opacity(0.5)).foregroundStyle(.white)
+                            }
+                            .allowsHitTesting(false)
+                    }
+                    if cloneMode, let source = cloneSource {
+                        Image(systemName: "plus.circle")
+                            .font(.system(size: 22)).foregroundStyle(.white)
+                            .shadow(color: .black, radius: 2)
+                            .position(x: source.x * width, y: (1 - source.y) * height)
+                            .allowsHitTesting(false)
+                    }
+                    if model.preset.name.localizedCaseInsensitiveContains("profil") {
+                        Circle().stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [5, 4])).allowsHitTesting(false)
+                    }
+                }
+                .frame(width: width, height: height)
+                .clipped()
+                .overlay(Rectangle().stroke(.white.opacity(0.2), lineWidth: 1))
+                .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 1).onChanged { value in
+                    guard !cloneMode else { return }
+                    if dragOrigin == nil { model.checkpoint(); model.clearCloneStrokes(); cloneSource = nil; dragOrigin = model.edit }
+                    guard let origin = dragOrigin else { return }
+                    model.pan(from: origin, translationX: Double(value.translation.width / width), translationY: -Double(value.translation.height / height))
+                }.onEnded { _ in dragOrigin = nil })
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active: if cloneMode { NSCursor.crosshair.set() }
+                    case .ended: NSCursor.arrow.set()
+                    }
+                }
+                .simultaneousGesture(SpatialTapGesture().onEnded { value in
+                    guard cloneMode else { return }
+                    let point = CGPoint(x: min(1, max(0, value.location.x / width)), y: min(1, max(0, 1 - value.location.y / height)))
+                    if NSEvent.modifierFlags.contains(.option) || cloneSource == nil {
+                        cloneSource = point
+                    } else if let source = cloneSource {
+                        model.addClone(source: source, target: point, radius: cloneRadius)
+                    }
+                })
+                .simultaneousGesture(MagnifyGesture().onChanged { value in
+                    if magnifyOrigin == nil { model.checkpoint(); model.clearCloneStrokes(); cloneSource = nil; magnifyOrigin = model.edit.zoom }
+                    model.edit.zoom = min(8, max(1, (magnifyOrigin ?? 1) * value.magnification))
+                }.onEnded { _ in magnifyOrigin = nil })
+                .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Anteprima ritagliata. Trascina per spostare la foto, pizzica per ingrandire.")
+                .accessibilityIdentifier("image-preview")
+            }
+        } else {
+            ContentUnavailableView {
+                Label("Dai spazio alle tue foto", systemImage: "crop.rotate")
+            } description: {
+                Text("Trascina qui una foto oppure aprila dal Mac.\nScegli un formato e trova la tua inquadratura.")
+            } actions: {
+                Button("Apri immagine…", action: model.chooseImage).buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private var inspector: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.preset.platform == .x ? "X (Twitter)" : model.preset.platform.rawValue).font(.caption).foregroundStyle(.secondary)
+                    Text(model.preset.name).font(.title3.bold())
+                    Text("\(model.preset.width) × \(model.preset.height) px").font(.body.monospacedDigit())
+                    Text(model.preset.referenceNote).font(.caption).foregroundStyle(.secondary)
+                    Text("Fonti controllate il 12/11/2026").font(.caption2).foregroundStyle(.secondary)
+                    Link("Specifiche della piattaforma ↗", destination: model.preset.referenceURL).font(.caption)
+                }
+                Divider()
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Inquadratura").font(.headline)
+                    slider("Zoom", value: $model.edit.zoom, range: 1...8, text: String(format: "%.2f×", model.edit.zoom))
+                    slider("Livella", value: $model.edit.straightenDegrees, range: -45...45, text: String(format: "%.1f°", model.edit.straightenDegrees))
+                    HStack {
+                        Button(action: model.rotate) { Label("Ruota 90°", systemImage: "rotate.left") }
+                        Spacer()
+                        Button("Azzera", action: model.reset)
+                    }
+                    Toggle("Griglia dei terzi", isOn: $model.showGrid)
+                    Text("Trascina per spostare la foto. Usa il gesto a pizzico o lo slider per ingrandire.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.disabled(model.document == nil)
+                Divider()
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Timbro clone").font(.headline)
+                    Toggle("Attiva timbro", isOn: $cloneMode)
+                        .accessibilityIdentifier("clone-mode")
+                    if cloneMode {
+                        VStack(alignment: .leading, spacing: 12) {
+                        Text(cloneSource == nil ? "Clicca nella foto per scegliere la sorgente." : "Clicca sul disturbo per coprirlo. ⌥ clic per cambiare sorgente.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Slider(value: $cloneRadius, in: 0.005...0.15) { Text("Raggio del timbro") }
+                        HStack {
+                            Text("Raggio: \(Int(cloneRadius * 100))%")
+                            Spacer()
+                            Button("Sorgente") { cloneSource = nil }
+                        }.font(.caption)
+                        }
+                    }
+                    if !model.edit.cloneStrokes.isEmpty {
+                        Button("Elimina ritocchi (\(model.edit.cloneStrokes.count))") { model.checkpoint(); model.clearCloneStrokes() }
+                    }
+                    Text("I ritocchi si azzerano cambiando inquadratura o preset. Puoi annullarli con ⌘Z.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.disabled(model.document == nil)
+                Divider()
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Esportazione").font(.headline)
+                    Picker("Formato", selection: $model.png) {
+                        Text("JPEG").tag(false)
+                        Text("PNG").tag(true)
+                    }.pickerStyle(.segmented)
+                    if !model.png {
+                        VStack(alignment: .leading) {
+                            HStack { Text("Qualità JPEG"); Spacer(); Text("\(Int(model.jpegQuality * 100))%").monospacedDigit() }
+                            Slider(value: $model.jpegQuality, in: 0.6...1)
+                                .accessibilityLabel("Qualità JPEG")
+                        }
+                    }
+                    Text("Trasparenza su fondo bianco, anche in PNG. Ingrandire non aggiunge dettaglio alla foto.").font(.caption).foregroundStyle(.secondary)
+                    Text("Colori sRGB per il web. Il JPEG usa compressione con perdita; PNG conserva i pixel del risultato. I social possono ricomprimere i file.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button(action: model.export) { Text(model.isExporting ? "Esportazione…" : "Esporta immagine…").frame(maxWidth: .infinity) }
+                        .buttonStyle(.borderedProminent).disabled(model.document == nil || model.isExporting)
+                }
+                Divider()
+                Text("Modifiche non distruttive\nL’originale non viene sovrascritto. Le modifiche della sessione si perdono chiudendo l’app.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(20)
+        }.background(.regularMaterial)
+    }
+
+    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack { Text(title); Spacer(); Text(text).foregroundStyle(.secondary).monospacedDigit() }
+            Slider(value: value, in: range, onEditingChanged: { editing in if editing { model.checkpoint(); model.clearCloneStrokes(); cloneSource = nil } })
+                .accessibilityLabel(title)
+        }
+    }
+}
