@@ -32,3 +32,11 @@ Questa matrice comprende scenari automatici e manuali. Lo stato di esecuzione è
 - Confrontare composizione export e preview per immagini landscape/portrait, soggetto vicino ai bordi e alpha trasparente.
 - Controllare i preset contro i link ufficiali in `preset-e-fonti.md` a ogni release; aggiornare data e classificazione se cambiano le pagine.
 - Caricare manualmente file campione sulle piattaforme solo come controllo empirico; annotare account/client/data. Non usare l’esito per promettere validità universale o assenza di compressione.
+
+## Nuovi scenari — autolivellamento e griglie
+
+- Orizzonte inclinato: Autolivella applica una sola modifica; ⌘Z ripristina angolo e timbri, ripristina riapplica l’angolo.
+- Immagine uniforme, risultato assente/non affidabile o analisi fallita: foto e cronologia intatte, messaggio comprensibile.
+- Modifica manuale durante l’analisi: il risultato precedente non sovrascrive la nuova inquadratura.
+- Passaggio tra griglie: verificare linee e visibilità con foto verticali/orizzontali; nessuna modifica allo stato di editing. L’export non deve includere guide.
+- Verificare fotografie reali con orizzonti inclinati nei due versi, un angolo manuale già presente e una rotazione di 90°: l’analisi Vision dipende dal contenuto e non è sostituibile dai soli test sulla conversione degli angoli.

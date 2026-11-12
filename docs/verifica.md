@@ -50,3 +50,13 @@ Tentato collaudo UI su copia con bundle ID separato per preservare la sessione a
 ### Riscontro utente dopo la correzione
 
 L’utente segnala che l’interazione con zoom e livellamento non appare ancora reattiva. La correzione elimina il debounce e il test dimostra la produzione di fotogrammi durante un flusso di modifiche al model, ma non verifica la fluidità del trascinamento nel run loop AppKit né le prestazioni sulle foto reali. Il problema di reattività resta aperto e richiede una verifica durante il tracking effettivo degli slider; non considerarlo risolto sulla sola base dei test passati.
+
+## Autolivellamento e griglie — verifica finale
+
+**29 test passati** (16 core, 13 UI/model/geometria), zero errori. Build release riuscita. I test coprono conversione del verso, soglia di confidenza, immagine uniforme senza orizzonte, una sola operazione di undo che ripristina anche i timbri, risultati asincroni invalidati da nuove modifiche e geometrie normalizzate di tutte le griglie.
+
+Su richiesta dell’utente, aggiunta una fixture con orizzonte noto e varianti a ±8°. Il test iniziale ha rilevato una rotazione nel verso errato; la conversione delle coordinate e il successivo raffinamento sono stati corretti sulla base dei pixel, senza allargare la tolleranza del test. La sola stima Vision lasciava circa 2° di residuo. Il risultato finale misura 0° nei due scenari con angolo già nello stato; aprendo invece i file storti come nuovi originali misura circa 0,11° e 0°. Tolleranza di accettazione 1,5°; misure limitate dalla risoluzione. Artefatti prima/dopo in `output/fixtures/`.
+
+Collaudo UI su copia separata: import del campione, menu con sei scelte, visualizzazione della griglia fitta e regolatore visibilità; Autolivella su immagine senza riferimento restituisce il messaggio previsto. Import del file `horizon-plus8-before.png`, comando Autolivella: angolo applicato circa −8,0°, orizzonte visivamente orizzontale anche nel preset verticale. Verificato a schermo con griglia dei terzi. L’undo del nuovo comando è verificato automaticamente; il collaudo export tramite dialogo non è stato completato in questa sessione (annullato il dialogo di prova), mentre pipeline ed export restano coperti dai test.
+
+Restano necessari campioni fotografici reali con orizzonti irregolari, verticali dominanti, architettura e scarso contrasto. La confidenza Vision da sola non garantisce che l’orizzonte scelto sia quello desiderato; la correzione resta verificabile e annullabile.

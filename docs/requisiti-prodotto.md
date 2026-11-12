@@ -43,7 +43,7 @@ La versione **v0.1** non include persistenza del progetto/sessione né elaborazi
 ## Ripartizione di lavoro
 
 - **Agente app:** shell SwiftUI, flusso utente e presentazione dei preset; integra i contratti d’immagine documentati.
-- **Test automatici:** 14 test passati (8 core, 6 model), inclusi export JPEG/PNG di tutti i preset, profilo colore, otto orientamenti EXIF, mappe pixel e angoli RGB pieni. Lo scenario model copre apertura, anteprima, modifica, export e import fallito senza perdere il sorgente caricato. Le verifiche manuali eseguite sono riportate in `verifica.md`.
+- **Test automatici:** 29 test passati (16 core, 13 UI/model/geometria), inclusi export JPEG/PNG di tutti i preset, profilo colore, otto orientamenti EXIF, mappe pixel e angoli RGB pieni. Lo scenario model copre apertura, anteprima, modifica, export e import fallito senza perdere il sorgente caricato. Le verifiche manuali eseguite sono riportate in `verifica.md`.
 - **Agente core/test:** modello trasformazioni, pipeline ImageIO/Core Image, clone offline, export sRGB/JPEG/PNG e scenari di verifica.
 - **Questo pacchetto docs:** definisce termini, preset documentati, ADR e casi di accettazione; i valori devono essere ricontrollati prima di release.
 
@@ -55,3 +55,8 @@ Usare componenti e comportamenti standard SwiftUI/macOS: finestra ridimensionabi
 ## Animazioni
 
 Transizioni brevi per anteprima iniziale, griglia, riepilogo preset, messaggi di stato e controlli espandibili clone/JPEG. Rispettare “Riduci movimento” di macOS. Pan, zoom e ritaglio devono restare precisi e immediati durante l’interazione.
+
+## Autolivellamento e guide di composizione
+
+- **F-09 Autolivellamento:** comando esplicito “Autolivella”, disponibile con foto caricata. Analizza l’inquadratura corrente sul Mac tramite Vision, senza inviare immagini; ignora i timbri clone durante l’analisi. Applica un angolo assoluto entro ±45° come unica modifica annullabile e azzera i timbri come ogni modifica geometrica. Se l’analisi non restituisce un riferimento accettabile, non modifica foto o cronologia. Una modifica dell’inquadratura o un import successivo invalida il risultato in corso. Il rilevamento è una stima da controllare visivamente, non una garanzia di orizzonte corretto in qualsiasi scena.
+- **F-10 Griglie:** selettore Nessuna, Regola dei terzi, Sezione aurea, Centro, Diagonali e Griglia fitta (8×8). Visibilità regolabile 20–100%, tratto chiaro con bordo scuro. Guide esclusivamente nell’anteprima: non alterano pixel, ritocchi o cronologia, né vengono esportate.

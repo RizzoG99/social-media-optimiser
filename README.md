@@ -18,7 +18,7 @@ Puoi anche aprire `Package.swift` in Xcode, selezionare l’eseguibile SocialFra
 
 1. Apri una foto con ⌘O o trascinala nella finestra.
 2. Scegli piattaforma e destinazione dalla barra laterale.
-3. Trascina la foto per comporre il ritaglio, usa il gesto a pizzico o lo slider per lo zoom. Livella con lo slider e la griglia; ruota a passi di 90°.
+3. Trascina la foto per comporre il ritaglio, usa il gesto a pizzico o lo slider per lo zoom. Livella con lo slider oppure premi **Autolivella** per una stima locale dell’orizzonte; controlla il risultato e annullalo con ⌘Z se necessario. Scegli fra terzi, sezione aurea, centro, diagonali e griglia fitta, oppure nessuna guida; regola la visibilità delle linee. Ruota a passi di 90°.
 4. Per piccole distrazioni attiva **Timbro clone**: primo clic sulla sorgente, poi clic sull’elemento da coprire. ⌥ clic sceglie una nuova sorgente; lo slider regola il raggio. Il timbro copia una zona con bordo sfumato, non ricostruisce automaticamente il contenuto. Cambiare inquadratura o preset azzera i timbri; ⌘Z ripristina lo stato precedente.
 5. Scegli JPEG/PNG e salva una copia con ⇧⌘E. ⌘Z e ⇧⌘Z annullano/ripristinano anche i cambi di preset.
 
