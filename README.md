@@ -41,3 +41,9 @@ JPEG usa compressione con perdita. Ridimensionamento, ingrandimento e conversion
 `Sources/SocialCore` contiene il motore indipendente dalla UI; `Sources/SocialFrame` l’app SwiftUI. `Tests` include test di geometria, orientamento, codifica, timbro, protezione degli originali e scenari di annulla/ripristina. GitHub Actions esegue test e build su macOS a ogni push/PR. Le verifiche di interfaccia, VoiceOver e caricamento reale sui social restano elencate separatamente dagli scenari automatici.
 
 Versione iniziale: nessun catalogo persistente, salvataggio progetti, export batch, pubblicazione social o servizio AI.
+
+## Licenza
+
+SocialFrame è distribuito con [licenza MIT](LICENSE).
+
+Copyright (c) 2026 Gabriele Rizzo.
