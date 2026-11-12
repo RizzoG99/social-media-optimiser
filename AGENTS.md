@@ -12,3 +12,11 @@ App macOS nativa SwiftUI, offline, macOS 14+, Swift 6 toolchain in modalità lin
 - Eseguire `swift test --enable-code-coverage` e `./scripts/build-app.sh` per cambi di codice. Aggiungere test che rilevino regressioni reali, non copie dell’implementazione.
 - Per modifiche all’interazione verificare anche UI reale (apri, modifica, annulla, esporta). Non dichiarare i test model come XCUITest. Annotare limiti di verifiche in `docs/verifica.md`.
 - Non introdurre rete, telemetria, account, AI remota o caricamento social senza una richiesta esplicita.
+
+## Skill di progetto
+
+Usare le procedure pertinenti senza caricarle tutte per ogni modifica:
+
+- [image-pipeline-validation](.agents/skills/image-pipeline-validation/SKILL.md): correttezza dei pixel e scenari del motore immagini.
+- [macos-interaction-validation](.agents/skills/macos-interaction-validation/SKILL.md): collaudo dell’app reale, gesti, slider e accessibilità.
+- [social-preset-maintenance](.agents/skills/social-preset-maintenance/SKILL.md): fonti ufficiali, catalogo e vincoli delle destinazioni social.
