@@ -20,7 +20,7 @@ struct SocialFrameApp: App {
                 Button("Ripristina", action: model.redo).keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!model.canRedo)
             }
             CommandGroup(replacing: .importExport) {
-                Button("Esporta…", action: model.export).keyboardShortcut("e", modifiers: [.command, .shift]).disabled(model.document == nil || model.isExporting)
+                Button("Esporta…", action: model.export).keyboardShortcut("e", modifiers: [.command, .shift]).disabled(model.document == nil || model.isExporting || model.isLoading)
             }
         }
     }

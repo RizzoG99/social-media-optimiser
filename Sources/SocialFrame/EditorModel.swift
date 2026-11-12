@@ -11,7 +11,7 @@ final class EditorModel: ObservableObject {
     @Published var edit = EditState() { didSet { requestPreview() } }
     @Published var preview: NSImage?
     @Published var errorMessage: String?
-    @Published var status = "Tutto sul tuo Mac. I tuoi originali restano intatti."
+    @Published var status = L10n.text("Tutto sul tuo Mac. I tuoi originali restano intatti.")
     @Published var isLoading = false
     @Published var isExporting = false
     @Published var isRendering = false
@@ -19,6 +19,10 @@ final class EditorModel: ObservableObject {
     @Published var jpegQuality = 0.95
     @Published var gridStyle: CompositionGrid = .thirds
     @Published var gridOpacity = 0.55
+    @Published var showDestinationGuides = true
+    @Published var showReplacementConfirmation = false
+    @Published private(set) var pendingImageURL: URL?
+    @Published private(set) var documentGeneration = 0
     var showGrid: Bool { gridStyle != .none }
     @Published private(set) var isAutoLeveling = false
     @Published private(set) var autoLevelMessage: String?
@@ -34,15 +38,19 @@ final class EditorModel: ObservableObject {
     private struct Snapshot: Equatable { let edit: EditState; let preset: Preset }
     @Published private var undoStack: [Snapshot] = []
     @Published private var redoStack: [Snapshot] = []
+    @Published private var preservedSnapshot: Snapshot?
+    var hasUnexportedChanges: Bool {
+        document != nil && Snapshot(edit: edit, preset: preset) != preservedSnapshot
+    }
     private var previewTask: Task<Void, Never>?
     private var importTask: Task<Void, Never>?
     private var revision = 0
     private let renderer = ImageRenderer()
-    var canUndo: Bool { !undoStack.isEmpty }
-    var canRedo: Bool { !redoStack.isEmpty }
+    var canUndo: Bool { !isLoading && !undoStack.isEmpty }
+    var canRedo: Bool { !isLoading && !redoStack.isEmpty }
     var imageDescription: String {
-        guard let document else { return "Nessuna immagine" }
-        return "\(document.pixelWidth) × \(document.pixelHeight) px"
+        guard let document else { return L10n.text("Nessuna immagine") }
+        return L10n.format("%d × %d px", document.pixelWidth, document.pixelHeight)
     }
 
     func chooseImage() {
@@ -51,7 +59,7 @@ final class EditorModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.prompt = "Apri immagine"
+        panel.prompt = L10n.text("Apri immagine")
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             if response == .OK, let url = panel.url { self?.open(url) }
         }
@@ -63,11 +71,45 @@ final class EditorModel: ObservableObject {
     }
 
     func open(_ url: URL) {
+        if hasUnexportedChanges {
+            pendingImageURL = url
+            showReplacementConfirmation = true
+            return
+        }
+        loadImage(url)
+    }
+
+    func cancelReplacement() {
+        pendingImageURL = nil
+        showReplacementConfirmation = false
+    }
+
+    func discardAndOpenPendingImage() {
+        guard let url = pendingImageURL else { return }
+        cancelReplacement()
+        loadImage(url)
+    }
+
+    func exportAndOpenPendingImage() {
+        showReplacementConfirmation = false
+        let requestedURL = pendingImageURL
+        showExportPanel { [weak self] in
+            guard let self, self.pendingImageURL == requestedURL else { return }
+            if !self.hasUnexportedChanges {
+                self.discardAndOpenPendingImage()
+            } else {
+                // Edits made while exporting have not been preserved in that copy.
+                self.showReplacementConfirmation = true
+            }
+        }
+    }
+
+    private func loadImage(_ url: URL) {
         importTask?.cancel()
         revision += 1
         autoLevelMessage = nil
         isLoading = true
-        status = "Apertura di \(url.lastPathComponent)…"
+        status = L10n.format("Apertura di %@…", url.lastPathComponent)
         importTask = Task {
             do {
                 let loaded = try await Task.detached(priority: .userInitiated) {
@@ -77,18 +119,20 @@ final class EditorModel: ObservableObject {
                 }.value
                 guard !Task.isCancelled else { return }
                 document = loaded
+                documentGeneration += 1
                 sourceURL = url
                 undoStack = []; redoStack = []
                 edit = EditState()
+                preservedSnapshot = Snapshot(edit: edit, preset: preset)
                 preview = nil
                 isLoading = false
-                status = "Originale caricato · \(imageDescription)"
+                status = L10n.format("Originale caricato · %@", imageDescription)
                 requestPreview()
             } catch {
                 guard !Task.isCancelled else { return }
                 isLoading = false
                 errorMessage = error.localizedDescription
-                status = "Impossibile aprire l’immagine."
+                status = L10n.text("Impossibile aprire l’immagine.")
             }
         }
     }
@@ -100,32 +144,72 @@ final class EditorModel: ObservableObject {
         redoStack = []
     }
     func undo() {
+        guard !isLoading else { return }
         guard let previous = undoStack.popLast() else { return }
         redoStack.append(Snapshot(edit: edit, preset: preset)); preset = previous.preset; edit = previous.edit
     }
     func redo() {
+        guard !isLoading else { return }
         guard let next = redoStack.popLast() else { return }
         undoStack.append(Snapshot(edit: edit, preset: preset)); preset = next.preset; edit = next.edit
     }
     func selectPreset(_ newPreset: Preset) {
-        guard preset != newPreset else { return }
+        guard !isLoading, preset != newPreset else { return }
         checkpoint()
         clearCloneStrokes()
         preset = newPreset
     }
-    func reset() { checkpoint(); edit = EditState() }
-    func rotate() { checkpoint(); clearCloneStrokes(); edit.quarterTurns = (edit.quarterTurns + 1) % 4 }
+    func reset() { guard !isLoading else { return }; checkpoint(); edit = EditState() }
+    func rotate() { guard !isLoading else { return }; checkpoint(); clearCloneStrokes(); edit.quarterTurns = (edit.quarterTurns + 1) % 4 }
+
+    @discardableResult
+    func setZoom(_ value: Double, recordUndo: Bool = true) -> Bool {
+        guard value.isFinite else { return false }
+        var adjusted = edit
+        adjusted.zoom = min(8, max(1, value))
+        return applyGeometry(adjusted, recordUndo: recordUndo)
+    }
+
+    @discardableResult
+    func setStraighten(_ value: Double, recordUndo: Bool = true) -> Bool {
+        guard value.isFinite else { return false }
+        var adjusted = edit
+        adjusted.straightenDegrees = min(45, max(-45, value))
+        return applyGeometry(adjusted, recordUndo: recordUndo)
+    }
+
+    @discardableResult
+    private func applyGeometry(_ adjusted: EditState, recordUndo: Bool = true) -> Bool {
+        guard !isLoading else { return false }
+        var adjusted = adjusted
+        // The pan helper returns cleared stamps even if it clamps to the same
+        // position. Only an actual geometry change should invalidate them.
+        adjusted.cloneStrokes = edit.cloneStrokes
+        guard adjusted != edit else { return false }
+        if recordUndo { checkpoint() }
+        adjusted.cloneStrokes = []
+        edit = adjusted
+        return true
+    }
+
+    func nudge(horizontal: Double, vertical: Double) {
+        guard let document,
+              let adjusted = try? renderer.panned(document: document, preset: preset, edit: edit,
+                  translationX: horizontal, translationY: vertical) else { return }
+        applyGeometry(adjusted)
+    }
 
     func pan(from origin: EditState, translationX: Double, translationY: Double) {
-        guard let document else { return }
+        guard !isLoading, let document else { return }
         if let panned = try? renderer.panned(document: document, preset: preset, edit: origin,
                                             translationX: translationX, translationY: translationY) {
             edit = panned
         }
     }
 
-    func clearCloneStrokes() { if !edit.cloneStrokes.isEmpty { edit.cloneStrokes = [] } }
+    func clearCloneStrokes() { if !isLoading && !edit.cloneStrokes.isEmpty { edit.cloneStrokes = [] } }
     func addClone(source: CGPoint, target: CGPoint, radius: Double) {
+        guard !isLoading else { return }
         checkpoint()
         edit.cloneStrokes.append(CloneStroke(sourceX: source.x, sourceY: source.y, targetX: target.x, targetY: target.y, radius: radius))
     }
@@ -134,23 +218,23 @@ final class EditorModel: ObservableObject {
         guard let document, !isAutoLeveling, !isLoading else { return }
         let preset = preset, edit = edit, requestedRevision = revision
         isAutoLeveling = true
-        autoLevelMessage = "Analisi dell’orizzonte…"
+        autoLevelMessage = L10n.text("Analisi dell’orizzonte…")
         Task {
             defer { isAutoLeveling = false }
             do {
                 let suggestion = try await estimateLevel(document, preset, edit)
                 guard self.document === document, revision == requestedRevision, !isLoading else {
-                    autoLevelMessage = "Inquadratura cambiata: ripeti l’autolivellamento."
+                    autoLevelMessage = L10n.text("Inquadratura cambiata: ripeti l’autolivellamento.")
                     return
                 }
                 guard let suggestion, suggestion.straightenDegrees.isFinite,
                       (-45...45).contains(suggestion.straightenDegrees),
                       suggestion.confidence.isFinite, suggestion.confidence >= 0.6 else {
-                    autoLevelMessage = "Orizzonte non riconosciuto con sufficiente affidabilità. Usa Livella."
+                    autoLevelMessage = L10n.text("Orizzonte non riconosciuto con sufficiente affidabilità. Usa Livella.")
                     return
                 }
                 guard abs(suggestion.straightenDegrees - self.edit.straightenDegrees) >= 0.05 else {
-                    autoLevelMessage = "L’immagine risulta già livellata."
+                    autoLevelMessage = L10n.text("L’immagine risulta già livellata.")
                     return
                 }
                 checkpoint()
@@ -158,10 +242,10 @@ final class EditorModel: ObservableObject {
                 adjusted.cloneStrokes = []
                 adjusted.straightenDegrees = suggestion.straightenDegrees
                 self.edit = adjusted
-                autoLevelMessage = String(format: "Livellamento applicato: %.1f°. Puoi annullare con ⌘Z.", suggestion.straightenDegrees)
+                autoLevelMessage = L10n.format("Livellamento applicato: %.1f°. Puoi annullare con ⌘Z.", suggestion.straightenDegrees)
             } catch {
                 guard self.document === document, revision == requestedRevision else { return }
-                autoLevelMessage = "Analisi non disponibile. Usa Livella per la correzione manuale."
+                autoLevelMessage = L10n.text("Analisi non disponibile. Usa Livella per la correzione manuale.")
             }
         }
     }
@@ -195,14 +279,18 @@ final class EditorModel: ObservableObject {
     }
 
     func export() {
-        guard document != nil, !isExporting else { return }
+        showExportPanel()
+    }
+
+    private func showExportPanel(afterSuccess: (() -> Void)? = nil) {
+        guard document != nil, !isExporting, !isLoading else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = png ? [.png] : [.jpeg]
-        let name = sourceURL?.deletingPathExtension().lastPathComponent ?? "Immagine"
+        let name = sourceURL?.deletingPathExtension().lastPathComponent ?? L10n.text("Immagine")
         panel.nameFieldStringValue = "\(name)-\(preset.id).\(png ? "png" : "jpg")"
-        panel.prompt = "Esporta"
+        panel.prompt = L10n.text("Esporta")
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            if response == .OK, let url = panel.url { self?.export(to: url) }
+            if response == .OK, let url = panel.url { self?.export(to: url, afterSuccess: afterSuccess) }
         }
         if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) {
             panel.beginSheetModal(for: window, completionHandler: completion)
@@ -211,10 +299,10 @@ final class EditorModel: ObservableObject {
         }
     }
 
-    func export(to url: URL) {
-        guard let document, !isExporting else { return }
+    func export(to url: URL, afterSuccess: (() -> Void)? = nil) {
+        guard let document, !isExporting, !isLoading else { return }
         if let sourceURL, url.standardizedFileURL.resolvingSymlinksInPath() == sourceURL.standardizedFileURL.resolvingSymlinksInPath() {
-            errorMessage = "Scegli un nome diverso: l’originale deve restare intatto."
+            errorMessage = L10n.text("Scegli un nome diverso: l’originale deve restare intatto.")
             return
         }
         let preset = preset, edit = edit, renderer = renderer
@@ -225,7 +313,12 @@ final class EditorModel: ObservableObject {
                 try await Task.detached(priority: .userInitiated) {
                     try renderer.export(document: document, preset: preset, edit: edit, format: format, to: url)
                 }.value
-                status = "Esportato \(url.lastPathComponent) · \(preset.width) × \(preset.height) px"
+                if self.document === document {
+                    preservedSnapshot = Snapshot(edit: edit, preset: preset)
+                }
+                status = L10n.format("Esportato %@ · %d × %d px", url.lastPathComponent, preset.width, preset.height)
+                isExporting = false
+                afterSuccess?()
             } catch { errorMessage = error.localizedDescription }
             isExporting = false
         }
