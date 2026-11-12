@@ -43,12 +43,21 @@ enum HorizonRefinement {
               let first = inliers.first, let last = inliers.last,
               last.x - first.x >= Double(w) * 0.65 else { return nil }
         let count = Double(inliers.count)
-        let meanX = inliers.reduce(0) { $0 + $1.x } / count
-        let meanY = inliers.reduce(0) { $0 + $1.y } / count
-        let variance = inliers.reduce(0) { $0 + pow($1.x - meanX, 2) }
+        // Keep the fit in Double: older SDKs expose both CGFloat and Double
+        // math overloads, making an untyped reduce/pow expression ambiguous.
+        let meanX = inliers.reduce(0.0) { $0 + Double($1.x) } / count
+        let meanY = inliers.reduce(0.0) { $0 + Double($1.y) } / count
+        let variance = inliers.reduce(0.0) { sum, point in
+            let delta = Double(point.x) - meanX
+            return sum + delta * delta
+        }
         guard variance > 0 else { return nil }
-        let slope = inliers.reduce(0) { $0 + ($1.x - meanX) * ($1.y - meanY) } / variance
-        let rms = sqrt(inliers.reduce(0) { $0 + pow($1.y - (meanY + slope * ($1.x - meanX)), 2) } / count)
+        let slope = inliers.reduce(0.0) { $0 + (Double($1.x) - meanX) * (Double($1.y) - meanY) } / variance
+        let squaredError = inliers.reduce(0.0) { sum, point in
+            let residual = Double(point.y) - (meanY + slope * (Double(point.x) - meanX))
+            return sum + residual * residual
+        }
+        let rms = sqrt(squaredError / count)
         let degrees = atan(slope) * 180 / .pi
         guard rms <= 1.5, abs(degrees) <= 4 else { return nil }
         return degrees
