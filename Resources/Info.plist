@@ -4,6 +4,7 @@
 <key>CFBundleName</key><string>SocialFrame</string>
 <key>CFBundleDisplayName</key><string>SocialFrame</string>
 <key>CFBundleIdentifier</key><string>it.socialframe.editor</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundlePackageType</key><string>APPL</string>
