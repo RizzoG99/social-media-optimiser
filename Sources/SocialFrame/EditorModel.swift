@@ -17,7 +17,20 @@ final class EditorModel: ObservableObject {
     @Published var isRendering = false
     @Published var png = false
     @Published var jpegQuality = 0.95
-    @Published var showGrid = true
+    @Published var gridStyle: CompositionGrid = .thirds
+    @Published var gridOpacity = 0.55
+    var showGrid: Bool { gridStyle != .none }
+    @Published private(set) var isAutoLeveling = false
+    @Published private(set) var autoLevelMessage: String?
+    private let estimateLevel: (ImageDocument, Preset, EditState) async throws -> AutoLevelSuggestion?
+
+    init(estimateLevel: @escaping (ImageDocument, Preset, EditState) async throws -> AutoLevelSuggestion? = { document, preset, edit in
+        try await Task.detached(priority: .userInitiated) {
+            try AutoLevelEstimator().estimate(document: document, preset: preset, edit: edit)
+        }.value
+    }) {
+        self.estimateLevel = estimateLevel
+    }
     private struct Snapshot: Equatable { let edit: EditState; let preset: Preset }
     @Published private var undoStack: [Snapshot] = []
     @Published private var redoStack: [Snapshot] = []
@@ -51,6 +64,8 @@ final class EditorModel: ObservableObject {
 
     func open(_ url: URL) {
         importTask?.cancel()
+        revision += 1
+        autoLevelMessage = nil
         isLoading = true
         status = "Apertura di \(url.lastPathComponent)…"
         importTask = Task {
@@ -113,6 +128,42 @@ final class EditorModel: ObservableObject {
     func addClone(source: CGPoint, target: CGPoint, radius: Double) {
         checkpoint()
         edit.cloneStrokes.append(CloneStroke(sourceX: source.x, sourceY: source.y, targetX: target.x, targetY: target.y, radius: radius))
+    }
+
+    func autoLevel() {
+        guard let document, !isAutoLeveling, !isLoading else { return }
+        let preset = preset, edit = edit, requestedRevision = revision
+        isAutoLeveling = true
+        autoLevelMessage = "Analisi dell’orizzonte…"
+        Task {
+            defer { isAutoLeveling = false }
+            do {
+                let suggestion = try await estimateLevel(document, preset, edit)
+                guard self.document === document, revision == requestedRevision, !isLoading else {
+                    autoLevelMessage = "Inquadratura cambiata: ripeti l’autolivellamento."
+                    return
+                }
+                guard let suggestion, suggestion.straightenDegrees.isFinite,
+                      (-45...45).contains(suggestion.straightenDegrees),
+                      suggestion.confidence.isFinite, suggestion.confidence >= 0.6 else {
+                    autoLevelMessage = "Orizzonte non riconosciuto con sufficiente affidabilità. Usa Livella."
+                    return
+                }
+                guard abs(suggestion.straightenDegrees - self.edit.straightenDegrees) >= 0.05 else {
+                    autoLevelMessage = "L’immagine risulta già livellata."
+                    return
+                }
+                checkpoint()
+                var adjusted = self.edit
+                adjusted.cloneStrokes = []
+                adjusted.straightenDegrees = suggestion.straightenDegrees
+                self.edit = adjusted
+                autoLevelMessage = String(format: "Livellamento applicato: %.1f°. Puoi annullare con ⌘Z.", suggestion.straightenDegrees)
+            } catch {
+                guard self.document === document, revision == requestedRevision else { return }
+                autoLevelMessage = "Analisi non disponibile. Usa Livella per la correzione manuale."
+            }
+        }
     }
 
     func requestPreview() {

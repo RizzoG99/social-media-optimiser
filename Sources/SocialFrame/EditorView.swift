@@ -95,6 +95,7 @@ struct EditorView: View {
         }
         .onChange(of: model.sourceURL) { _, _ in cloneSource = nil }
         .onChange(of: model.preset) { _, _ in cloneSource = nil }
+        .onChange(of: model.edit.straightenDegrees) { _, _ in cloneSource = nil }
     }
 
     @ViewBuilder private var canvas: some View {
@@ -109,13 +110,12 @@ struct EditorView: View {
                     if model.showGrid {
                         Canvas { context, size in
                             var path = Path()
-                            for step in 1...2 {
-                                let x = size.width * CGFloat(step) / 3
-                                let y = size.height * CGFloat(step) / 3
-                                path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
-                                path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: size.width, y: y))
+                            for line in model.gridStyle.lines {
+                                path.move(to: CGPoint(x: line.start.x * size.width, y: line.start.y * size.height))
+                                path.addLine(to: CGPoint(x: line.end.x * size.width, y: line.end.y * size.height))
                             }
-                            context.stroke(path, with: .color(.white.opacity(0.55)), lineWidth: 0.6)
+                            context.stroke(path, with: .color(.black.opacity(model.gridOpacity * 0.65)), lineWidth: 1.8)
+                            context.stroke(path, with: .color(.white.opacity(model.gridOpacity)), lineWidth: 0.65)
                         }.allowsHitTesting(false)
                             .transition(.opacity)
                     }
@@ -139,7 +139,7 @@ struct EditorView: View {
                         Circle().stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [5, 4])).allowsHitTesting(false)
                     }
                 }
-                .animation(interfaceAnimation, value: model.showGrid)
+                .animation(interfaceAnimation, value: model.gridStyle)
                 .frame(width: width, height: height)
                 .clipped()
                 .overlay(Rectangle().stroke(.white.opacity(0.2), lineWidth: 1))
@@ -214,7 +214,24 @@ struct EditorView: View {
                         Spacer()
                         Button("Azzera", action: model.reset)
                     }
-                    Toggle("Griglia dei terzi", isOn: $model.showGrid)
+                    Button(action: model.autoLevel) {
+                        Label(model.isAutoLeveling ? "Analisi…" : "Autolivella", systemImage: "level")
+                    }
+                    .disabled(model.isAutoLeveling || model.isLoading)
+                    .accessibilityIdentifier("auto-level")
+                    .help("Stima l’orizzonte sul Mac. Controlla il risultato; puoi annullare con ⌘Z.")
+                    if let message = model.autoLevelMessage {
+                        Text(message).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("auto-level-result")
+                    }
+                    Picker("Griglia", selection: $model.gridStyle) {
+                        ForEach(CompositionGrid.allCases) { grid in Text(grid.title).tag(grid) }
+                    }
+                    .accessibilityIdentifier("composition-grid")
+                    if model.showGrid {
+                        Slider(value: $model.gridOpacity, in: 0.2...1) { Text("Visibilità griglia") }
+                            .accessibilityLabel("Visibilità griglia")
+                    }
                     Text("Trascina per spostare la foto. Usa il gesto a pizzico o lo slider per ingrandire.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.disabled(model.document == nil)
