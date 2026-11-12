@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import SocialCore
 import AppKit
 import ImageIO
@@ -51,6 +52,43 @@ final class EditorModelTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
         XCTAssertEqual(model.sourceURL, source)
         XCTAssertEqual(model.document?.pixelWidth, 32)
+    }
+
+    func testPreviewUpdatesWhileZoomAndStraightenKeepChanging() async throws {
+        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 80, pixelsHigh: 60,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let pixels = bitmap.bitmapData!
+        for y in 0..<60 { for x in 0..<80 {
+            let offset = y * bitmap.bytesPerRow + x * 4
+            pixels[offset] = UInt8(x * 3); pixels[offset + 1] = UInt8(y * 4)
+            pixels[offset + 2] = 100; pixels[offset + 3] = 255
+        }}
+        let model = EditorModel()
+        model.document = try ImageDocument(data: bitmap.representation(using: .png, properties: [:])!)
+        model.preset = Preset(id: "live-test", platform: .instagram, name: "Test", width: 120, height: 100)
+        var frames = 0
+        let observation = model.$preview.compactMap { $0 }.sink { _ in frames += 1 }
+        defer { observation.cancel() }
+        // Events arrive more frequently than the former 35 ms debounce. Check
+        // before the stream stops: a final-only frame cannot satisfy this test.
+        for step in 1...80 {
+            model.edit.zoom = 1 + Double(step) / 80
+            model.edit.straightenDegrees = Double(step) / 4
+            try await Task.sleep(for: .milliseconds(8))
+            if step == 40 { XCTAssertGreaterThan(frames, 1, "Preview must update during an ongoing slider gesture") }
+        }
+        for _ in 0..<150 {
+            if !model.isRendering { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(model.isRendering)
+        XCTAssertGreaterThan(frames, 2)
+        let actual = try XCTUnwrap(model.preview?.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        let expected = try ImageRenderer().render(document: XCTUnwrap(model.document), preset: model.preset, edit: model.edit, maxPixelSize: 1400)
+        XCTAssertEqual(actual.width, expected.width)
+        XCTAssertEqual(actual.height, expected.height)
+        XCTAssertEqual(actual.dataProvider?.data as Data?, expected.dataProvider?.data as Data?, "Last frame must match the final slider values")
     }
 
     func testCropUndoRedoAndNewEditInvalidatesRedo() {

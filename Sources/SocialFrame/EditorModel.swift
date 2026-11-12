@@ -116,25 +116,29 @@ final class EditorModel: ObservableObject {
     }
 
     func requestPreview() {
-        previewTask?.cancel()
         revision += 1
-        let requestedRevision = revision
-        guard let document else { return }
-        let preset = preset, edit = edit, renderer = renderer
+        // A single worker drains the latest state. Never debounce or cancel a
+        // useful frame because the next slider event arrived while rendering.
+        guard document != nil, previewTask == nil else { return }
         isRendering = true
         previewTask = Task {
-            do {
-                try await Task.sleep(for: .milliseconds(35))
-                let image = try await Task.detached(priority: .userInitiated) {
-                    try renderer.render(document: document, preset: preset, edit: edit, maxPixelSize: 1400)
-                }.value
-                guard !Task.isCancelled, revision == requestedRevision else { return }
-                preview = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
-                isRendering = false
-            } catch {
-                guard !Task.isCancelled, revision == requestedRevision else { return }
-                isRendering = false
-                errorMessage = error.localizedDescription
+            defer { previewTask = nil; isRendering = false }
+            while let document = self.document {
+                let requestedRevision = revision
+                let preset = self.preset, edit = self.edit, renderer = renderer
+                do {
+                    let image = try await Task.detached(priority: .userInitiated) {
+                        try renderer.render(document: document, preset: preset, edit: edit, maxPixelSize: 1400)
+                    }.value
+                    // Intermediate edits are useful during a continuous gesture;
+                    // a frame from a different document or preset is never shown.
+                    if self.document === document, self.preset == preset {
+                        preview = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+                    }
+                } catch {
+                    if revision == requestedRevision { errorMessage = error.localizedDescription }
+                }
+                if revision == requestedRevision { break }
             }
         }
     }
