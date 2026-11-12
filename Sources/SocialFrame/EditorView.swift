@@ -128,116 +128,8 @@ struct EditorView: View {
     @ViewBuilder private var canvas: some View {
         if let image = model.preview {
             GeometryReader { proxy in
-                let available = CGSize(width: max(1, proxy.size.width - 64), height: max(1, proxy.size.height - 64))
-                let ratio = CGFloat(model.preset.width) / CGFloat(model.preset.height)
-                let width = min(available.width, available.height * ratio)
-                let height = width / ratio
-                ZStack {
-                    Image(nsImage: image).resizable().interpolation(.high)
-                    if model.showGrid {
-                        Canvas { context, size in
-                            var path = Path()
-                            for line in model.gridStyle.lines {
-                                path.move(to: CGPoint(x: line.start.x * size.width, y: line.start.y * size.height))
-                                path.addLine(to: CGPoint(x: line.end.x * size.width, y: line.end.y * size.height))
-                            }
-                            context.stroke(path, with: .color(.black.opacity(model.gridOpacity * 0.65)), lineWidth: 1.8)
-                            context.stroke(path, with: .color(.white.opacity(model.gridOpacity)), lineWidth: 0.65)
-                        }.allowsHitTesting(false)
-                            .transition(.opacity)
-                    }
-                    if model.showDestinationGuides && model.preset.id == "youtube-banner" {
-                        Rectangle().stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                            .frame(width: width * 1235 / 2048, height: height * 338 / 1152)
-                            .overlay(alignment: .bottom) {
-                                Text("Area sicura indicativa").font(.caption2).padding(3)
-                                    .background(.black.opacity(0.5)).foregroundStyle(.white)
-                            }
-                            .allowsHitTesting(false)
-                    }
-                    if cloneMode, let source = cloneSource {
-                        Image(systemName: "plus.circle")
-                            .font(.system(size: 22)).foregroundStyle(.white)
-                            .shadow(color: .black, radius: 2)
-                            .position(x: source.x * width, y: (1 - source.y) * height)
-                            .allowsHitTesting(false)
-                    }
-                    if cloneMode {
-                        let point = hoverPoint ?? cloneTarget
-                        Circle().stroke(.black, lineWidth: 3)
-                            .overlay(Circle().stroke(.white, lineWidth: 1))
-                            .frame(width: min(width, height) * cloneRadius * 2, height: min(width, height) * cloneRadius * 2)
-                            .position(x: point.x * width, y: (1 - point.y) * height)
-                            .allowsHitTesting(false)
-                    }
-                    if model.showDestinationGuides && model.preset.id.hasSuffix("-profile") {
-                        Circle().stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [5, 4])).allowsHitTesting(false)
-                    }
-                }
-                .animation(interfaceAnimation, value: model.gridStyle)
-                .frame(width: width, height: height)
-                .clipped()
-                .overlay(Rectangle().stroke(.white.opacity(0.2), lineWidth: 1))
-                .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 1).onChanged { value in
-                    guard !model.isLoading, !cloneMode else { return }
-                    if dragOrigin == nil { model.checkpoint(); model.clearCloneStrokes(); cloneSource = nil; dragOrigin = model.edit }
-                    guard let origin = dragOrigin else { return }
-                    model.pan(from: origin, translationX: Double(value.translation.width / width), translationY: -Double(value.translation.height / height))
-                }.onEnded { _ in dragOrigin = nil })
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active(let location):
-                        if cloneMode {
-                            NSCursor.crosshair.set()
-                            hoverPoint = CGPoint(x: min(1, max(0, location.x / width)), y: min(1, max(0, 1 - location.y / height)))
-                        }
-                    case .ended: hoverPoint = nil; NSCursor.arrow.set()
-                    }
-                }
-                .simultaneousGesture(SpatialTapGesture().onEnded { value in
-                    guard !model.isLoading, cloneMode else { return }
-                    canvasFocused = true
-                    let point = CGPoint(x: min(1, max(0, value.location.x / width)), y: min(1, max(0, 1 - value.location.y / height)))
-                    cloneTarget = point
-                    if NSEvent.modifierFlags.contains(.option) || cloneSource == nil {
-                        cloneSource = point
-                    } else if let source = cloneSource {
-                        model.addClone(source: source, target: point, radius: cloneRadius)
-                    }
-                })
-                .simultaneousGesture(MagnifyGesture().onChanged { value in
-                    guard !model.isLoading else { return }
-                    if magnifyOrigin == nil { model.checkpoint(); model.clearCloneStrokes(); cloneSource = nil; magnifyOrigin = model.edit.zoom }
-                    model.edit.zoom = min(8, max(1, (magnifyOrigin ?? 1) * value.magnification))
-                }.onEnded { _ in magnifyOrigin = nil })
-                .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                .focusable()
-                .focused($canvasFocused)
-                .onMoveCommand { direction in
-                    switch direction {
-                    case .left: move(horizontal: -0.01, vertical: 0)
-                    case .right: move(horizontal: 0.01, vertical: 0)
-                    case .up: move(horizontal: 0, vertical: 0.01)
-                    case .down: move(horizontal: 0, vertical: -0.01)
-                    @unknown default: break
-                    }
-                }
-                .onKeyPress(.space) {
-                    guard cloneMode else { return .ignored }
-                    applyCloneAtTarget()
-                    return .handled
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Anteprima dell’immagine")
-                .accessibilityHint(cloneMode ? L10n.text("Usa le frecce per spostare la destinazione e Spazio per scegliere la sorgente o applicare un timbro. Le coordinate sono disponibili nei controlli del clone.") : L10n.text("Usa le frecce o i pulsanti Sposta foto per spostare l’inquadratura. Usa Zoom per ingrandire."))
-                .accessibilityAction(named: Text("Sposta a sinistra")) { move(horizontal: -0.01, vertical: 0) }
-                .accessibilityAction(named: Text("Sposta a destra")) { move(horizontal: 0.01, vertical: 0) }
-                .accessibilityAction(named: Text("Sposta in alto")) { move(horizontal: 0, vertical: 0.01) }
-                .accessibilityAction(named: Text("Sposta in basso")) { move(horizontal: 0, vertical: -0.01) }
-                .accessibilityAction(named: Text("Scegli sorgente o applica timbro")) { if cloneMode { applyCloneAtTarget() } }
-                .accessibilityIdentifier("image-preview")
+                let size = fittedCanvasSize(in: proxy.size)
+                accessibleCanvas(image: image, size: size, container: proxy.size)
             }
             .transition(reduceMotion ? .identity : .opacity)
         } else {
@@ -249,6 +141,178 @@ struct EditorView: View {
                 Button("Apri immagine…", action: model.chooseImage).buttonStyle(.borderedProminent)
             }
             .transition(reduceMotion ? .identity : .opacity)
+        }
+    }
+
+    // Opaque return types give the Swift 6.1 type checker a boundary between
+    // rendering, decoration, gestures and accessibility, without AnyView.
+    private func fittedCanvasSize(in container: CGSize) -> CGSize {
+        let available = CGSize(width: max(1, container.width - 64), height: max(1, container.height - 64))
+        let ratio = CGFloat(model.preset.width) / CGFloat(model.preset.height)
+        let width = min(available.width, available.height * ratio)
+        return CGSize(width: width, height: width / ratio)
+    }
+
+    private func canvasLayers(image: NSImage, size: CGSize) -> some View {
+        ZStack {
+            Image(nsImage: image).resizable().interpolation(.high)
+            if model.showGrid { compositionGridOverlay }
+            bannerGuide(size: size)
+            cloneOverlay(size: size)
+            if model.showDestinationGuides && model.preset.id.hasSuffix("-profile") {
+                Circle().stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private var compositionGridOverlay: some View {
+        Canvas { context, size in
+            var path = Path()
+            for line in model.gridStyle.lines {
+                path.move(to: CGPoint(x: line.start.x * size.width, y: line.start.y * size.height))
+                path.addLine(to: CGPoint(x: line.end.x * size.width, y: line.end.y * size.height))
+            }
+            context.stroke(path, with: .color(.black.opacity(model.gridOpacity * 0.65)), lineWidth: 1.8)
+            context.stroke(path, with: .color(.white.opacity(model.gridOpacity)), lineWidth: 0.65)
+        }
+        .allowsHitTesting(false)
+        .transition(.opacity)
+    }
+
+    @ViewBuilder private func bannerGuide(size: CGSize) -> some View {
+        if model.showDestinationGuides && model.preset.id == "youtube-banner" {
+            Rectangle().stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                .frame(width: size.width * 1235 / 2048, height: size.height * 338 / 1152)
+                .overlay(alignment: .bottom) {
+                    Text("Area sicura indicativa").font(.caption2).padding(3)
+                        .background(.black.opacity(0.5)).foregroundStyle(.white)
+                }
+                .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder private func cloneOverlay(size: CGSize) -> some View {
+        if cloneMode, let source = cloneSource {
+            Image(systemName: "plus.circle")
+                .font(.system(size: 22)).foregroundStyle(.white)
+                .shadow(color: .black, radius: 2)
+                .position(x: source.x * size.width, y: (1 - source.y) * size.height)
+                .allowsHitTesting(false)
+        }
+        if cloneMode {
+            let point = hoverPoint ?? cloneTarget
+            let diameter = min(size.width, size.height) * CGFloat(cloneRadius * 2)
+            Circle().stroke(.black, lineWidth: 3)
+                .overlay(Circle().stroke(.white, lineWidth: 1))
+                .frame(width: diameter, height: diameter)
+                .position(x: point.x * size.width, y: (1 - point.y) * size.height)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func decoratedCanvas(image: NSImage, size: CGSize) -> some View {
+        canvasLayers(image: image, size: size)
+            .animation(interfaceAnimation, value: model.gridStyle)
+            .frame(width: size.width, height: size.height)
+            .clipped()
+            .overlay(Rectangle().stroke(.white.opacity(0.2), lineWidth: 1))
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+            .contentShape(Rectangle())
+    }
+
+    private func interactiveCanvas(image: NSImage, size: CGSize) -> some View {
+        decoratedCanvas(image: image, size: size)
+            .gesture(panGesture(size: size))
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    if cloneMode {
+                        NSCursor.crosshair.set()
+                        hoverPoint = normalizedPoint(location, in: size)
+                    }
+                case .ended: hoverPoint = nil; NSCursor.arrow.set()
+                }
+            }
+            .simultaneousGesture(cloneGesture(size: size))
+            .simultaneousGesture(magnifyGesture)
+    }
+
+    private func panGesture(size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1).onChanged { value in
+            guard !model.isLoading, !cloneMode else { return }
+            if dragOrigin == nil {
+                model.checkpoint(); model.clearCloneStrokes(); cloneSource = nil; dragOrigin = model.edit
+            }
+            guard let origin = dragOrigin else { return }
+            model.pan(from: origin, translationX: Double(value.translation.width / size.width),
+                      translationY: -Double(value.translation.height / size.height))
+        }.onEnded { _ in dragOrigin = nil }
+    }
+
+    private func cloneGesture(size: CGSize) -> some Gesture {
+        SpatialTapGesture().onEnded { value in
+            guard !model.isLoading, cloneMode else { return }
+            canvasFocused = true
+            let point = normalizedPoint(value.location, in: size)
+            cloneTarget = point
+            if NSEvent.modifierFlags.contains(.option) || cloneSource == nil {
+                cloneSource = point
+            } else if let source = cloneSource {
+                model.addClone(source: source, target: point, radius: cloneRadius)
+            }
+        }
+    }
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture().onChanged { value in
+            guard !model.isLoading else { return }
+            if magnifyOrigin == nil {
+                model.checkpoint(); model.clearCloneStrokes(); cloneSource = nil; magnifyOrigin = model.edit.zoom
+            }
+            model.edit.zoom = min(8, max(1, (magnifyOrigin ?? 1) * value.magnification))
+        }.onEnded { _ in magnifyOrigin = nil }
+    }
+
+    private func normalizedPoint(_ point: CGPoint, in size: CGSize) -> CGPoint {
+        CGPoint(x: min(1, max(0, point.x / size.width)), y: min(1, max(0, 1 - point.y / size.height)))
+    }
+
+    private func accessibleCanvas(image: NSImage, size: CGSize, container: CGSize) -> some View {
+        interactiveCanvas(image: image, size: size)
+            .position(x: container.width / 2, y: container.height / 2)
+            .focusable()
+            .focused($canvasFocused)
+            .onMoveCommand(perform: moveCanvas)
+            .onKeyPress(.space) {
+                guard cloneMode else { return .ignored }
+                applyCloneAtTarget()
+                return .handled
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Anteprima dell’immagine")
+            .accessibilityHint(canvasAccessibilityHint)
+            .accessibilityAction(named: Text("Sposta a sinistra")) { move(horizontal: -0.01, vertical: 0) }
+            .accessibilityAction(named: Text("Sposta a destra")) { move(horizontal: 0.01, vertical: 0) }
+            .accessibilityAction(named: Text("Sposta in alto")) { move(horizontal: 0, vertical: 0.01) }
+            .accessibilityAction(named: Text("Sposta in basso")) { move(horizontal: 0, vertical: -0.01) }
+            .accessibilityAction(named: Text("Scegli sorgente o applica timbro")) { if cloneMode { applyCloneAtTarget() } }
+            .accessibilityIdentifier("image-preview")
+    }
+
+    private var canvasAccessibilityHint: String {
+        cloneMode
+            ? L10n.text("Usa le frecce per spostare la destinazione e Spazio per scegliere la sorgente o applicare un timbro. Le coordinate sono disponibili nei controlli del clone.")
+            : L10n.text("Usa le frecce o i pulsanti Sposta foto per spostare l’inquadratura. Usa Zoom per ingrandire.")
+    }
+
+    private func moveCanvas(_ direction: MoveCommandDirection) {
+        switch direction {
+        case .left: move(horizontal: -0.01, vertical: 0)
+        case .right: move(horizontal: 0.01, vertical: 0)
+        case .up: move(horizontal: 0, vertical: 0.01)
+        case .down: move(horizontal: 0, vertical: -0.01)
+        @unknown default: break
         }
     }
 
