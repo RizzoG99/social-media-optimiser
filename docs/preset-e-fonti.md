@@ -42,6 +42,22 @@ Nota: thumbnail e shorts YouTube, story/reel Instagram e storie Facebook sono im
 
 ## Fonte per preset e data di verifica nell’interfaccia
 
+### Riesame UX del 12 novembre 2026
+
+La UI ora espone stato e data **per destinazione**, nel dettaglio espandibile “Fonte del formato”. È stata rimossa la dicitura globale “Fonti controllate” che poteva far apparire tutti i valori verificati. Dimensioni, nomi e ID dei 27 target di esportazione restano invariati.
+
+| Destinazione | Stato delle dimensioni nella UI | Riscontro attuale |
+|---|---|---|
+| YouTube miniatura video / Shorts | Raccomandazione ufficiale | [Fonte](https://support.google.com/youtube/answer/72431) riaperta il 12/11/2026: 3840×2160 / 2160×3840; JPG/PNG, massimo 50 MB da desktop; video mobile 2 MB, podcast mobile 10 MB. Shorts da Studio su computer con account verificato. |
+| YouTube banner | Raccomandazione ufficiale | [Fonte](https://support.google.com/youtube/answer/10456525) riaperta il 12/11/2026: raccomandato 2560×1440, minimo 2048×1152, area sicura al minimo 1235×338, massimo 6 MB. |
+| YouTube profilo | Formato pratico | Stessa fonte verificata il 12/11/2026: resa a 98×98, massimo 15 MB; **800×800 non è prescritto**. |
+| LinkedIn profilo | Requisito ufficiale | [Fonte](https://www.linkedin.com/help/linkedin/answer/a549049) riaperta il 12/11/2026: 400×400 è il minimo del range, non l'unica misura ammessa; JPG/PNG, massimo 8 MB. |
+| LinkedIn copertina personale | Raccomandazione ufficiale | La medesima pagina `a549049`, riaperta il 12/11/2026, indica 1584×396. Il link UI ora punta alla pagina che espone effettivamente il dato. |
+| X profilo / header | Raccomandazione ufficiale | [Fonte](https://help.x.com/en/managing-your-account/common-issues-when-uploading-profile-photo) riaperta il 12/11/2026: 400×400 / 1500×500; JPEG/GIF/PNG, profilo massimo 2 MB; ritaglio header variabile. |
+| Instagram, Facebook, altri formati LinkedIn e post X | Formato pratico, da verificare | Nessuna nuova verifica positiva attribuita alle dimensioni. Instagram ha risposto HTTP 429; Facebook ha rimandato al login. Gli altri dati non sono stati ricontrollati in questo intervento. |
+
+Le date precedenti nelle tabelle sottostanti documentano la ricerca iniziale, non una verifica nuova dell'intero catalogo. Le dimensioni non ricontrollate restano prudentemente pratiche nella UI. Il link della copertina aziendale LinkedIn è stato corretto al percorso `/help/lms/answer/a567368`, senza attribuirgli una verifica recente. I limiti di peso social citati sono informazioni: l'app non li impone all'export e lo dichiara nel dettaglio della fonte. Nessun caricamento sui social effettuato.
+
 Mostrare un link specifico per la destinazione, una data **Ultima verifica** mantenuta insieme ai dati del preset e un’etichetta “Limite ufficiale”, “Raccomandato” o “Preset pratico”. Evitare un singolo link generico per tutti i preset di una piattaforma. Fonti applicabili: Instagram post [foto](https://help.instagram.com/1631821640426723); YouTube [miniatura video](https://support.google.com/youtube/answer/72431) e [branding canale](https://support.google.com/youtube/answer/10456525); Facebook [immagine profilo](https://www.facebook.com/help/125379114252045) (pagina può richiedere login; le altre specifiche restano da verificare); LinkedIn [post foto](https://www.linkedin.com/help/linkedin/answer/a527229), [foto profilo](https://www.linkedin.com/help/linkedin/answer/a549049), [cover profilo](https://www.linkedin.com/help/linkedin/answer/a568217); X [foto profilo e header](https://help.x.com/en/managing-your-account/common-issues-when-uploading-profile-photo.html), [foto nei post](https://help.x.com/en/using-x/posting-gifs-and-pictures).
 
 `Sources/SocialFrame/PresetInfo.swift` seleziona le fonti specifiche per miniatura/branding YouTube, post/profilo/cover LinkedIn e post/profilo X. Per Instagram e Facebook le fonti disponibili sono generali: non tutte le superfici hanno specifiche verificate. La UI mostra una nota di affidabilità e la data del controllo.

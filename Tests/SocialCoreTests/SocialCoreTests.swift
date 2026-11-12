@@ -73,6 +73,23 @@ final class SocialCoreTests: XCTestCase {
         XCTAssertThrowsError(try renderer.export(document: doc, preset: preset(10, 10), edit: .init(), format: .png, to: url))
         XCTAssertEqual(try Data(contentsOf: url), original)
     }
+
+    func testLongThinImageReportsSideLimitRatherThanMegapixels() throws {
+        // 40,000 pixels is only 0.04 MP: the previous message falsely blamed
+        // the 120 MP/file-size limits for this otherwise small PNG.
+        let context = try XCTUnwrap(CGContext(data: nil, width: 40_000, height: 1,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let image = try XCTUnwrap(context.makeImage())
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        XCTAssertThrowsError(try ImageDocument(data: data as Data)) { error in
+            XCTAssertEqual(error as? SocialCoreError, .sideTooLong)
+        }
+    }
     private func rgba(_ image: CGImage) -> [UInt8] {
         var result = [UInt8](repeating: 0, count: image.width * image.height * 4)
         result.withUnsafeMutableBytes { raw in

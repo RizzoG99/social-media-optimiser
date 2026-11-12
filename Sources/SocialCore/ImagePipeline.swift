@@ -5,16 +5,17 @@ import UniformTypeIdentifiers
 
 /// Errors produced when importing, rendering, or exporting an image.
 public enum SocialCoreError: Error, Equatable, LocalizedError {
-    case invalidImage, invalidDimensions, tooLarge, invalidEdit, renderFailed, exportFailed, wouldOverwriteOriginal
+    case invalidImage, invalidDimensions, tooLarge, sideTooLong, invalidEdit, renderFailed, exportFailed, wouldOverwriteOriginal
     public var errorDescription: String? {
         switch self {
-        case .invalidImage: return "Impossibile leggere l’immagine."
-        case .invalidDimensions: return "Le dimensioni dell’immagine superano i limiti supportati o non sono valide."
-        case .tooLarge: return "Il file supera 512 MB oppure l’immagine supera 120 megapixel."
-        case .invalidEdit: return "Le modifiche contengono valori non validi."
-        case .renderFailed: return "Impossibile elaborare l’immagine."
-        case .exportFailed: return "Impossibile esportare l’immagine."
-        case .wouldOverwriteOriginal: return "Scegli un altro file per preservare l’originale."
+        case .invalidImage: return String(localized: "Impossibile leggere l’immagine.", bundle: .module)
+        case .invalidDimensions: return String(localized: "Le dimensioni dell’immagine superano i limiti supportati o non sono valide.", bundle: .module)
+        case .tooLarge: return String(localized: "Il file supera 512 MB oppure l’immagine supera 120 megapixel.", bundle: .module)
+        case .sideTooLong: return String(localized: "L’immagine supera il limite di 32.768 pixel per lato. Riducine le dimensioni e riprova.", bundle: .module)
+        case .invalidEdit: return String(localized: "Le modifiche contengono valori non validi.", bundle: .module)
+        case .renderFailed: return String(localized: "Impossibile elaborare l’immagine.", bundle: .module)
+        case .exportFailed: return String(localized: "Impossibile esportare l’immagine.", bundle: .module)
+        case .wouldOverwriteOriginal: return String(localized: "Scegli un altro file per preservare l’originale.", bundle: .module)
         }
     }
 }
@@ -46,7 +47,8 @@ public final class ImageDocument {
               let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
               let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
               width > 0, height > 0 else { throw SocialCoreError.invalidImage }
-        guard width <= 32768, height <= 32768, width <= 120_000_000 / height else { throw SocialCoreError.tooLarge }
+        guard width <= 32768, height <= 32768 else { throw SocialCoreError.sideTooLong }
+        guard width <= 120_000_000 / height else { throw SocialCoreError.tooLarge }
         guard let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw SocialCoreError.invalidImage }
         let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.int32Value ?? 1
         let oriented = CIImage(cgImage: cg).oriented(forExifOrientation: (1...8).contains(orientation) ? orientation : 1)

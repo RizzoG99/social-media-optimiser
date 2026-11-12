@@ -13,6 +13,7 @@ Creator o operatore seleziona un’immagine, sceglie una piattaforma e un format
 ## Requisiti funzionali
 
 - **F-01 Importazione:** aprire JPEG e PNG tramite selettore file; conservare il sorgente intatto. Gestire errori di file illeggibile e dimensioni non supportate con messaggi comprensibili.
+  Prima di sostituire una foto con modifiche non esportate, offrire esportazione, scarto esplicito o annullamento. Durante l'importazione sospendere le azioni di editing; un import fallito conserva immagine, modifiche e cronologia precedenti. L'esportazione preserva soltanto lo snapshot effettivamente renderizzato.
 - **F-02 Preset:** elencare preset distinti per destinazione e rapporto d’aspetto. Ogni preset mostra pixel risultanti, rapporto, formato esportato e provenienza/ultimo controllo delle specifiche.
 - **F-03 Modifica non distruttiva:** memorizzare trasformazioni separate dal sorgente: ritaglio, pan, zoom, raddrizzamento e rotazione a passi in senso antiorario. Modifiche aggiornano l’anteprima; “Ripristina” riporta allo stato iniziale. Il pan deve avere un helper robusto che rispetti i limiti dell’immagine e mantenga coerenti canvas, preview ed export. Nessun ritocco dei pixel originali.
 - **F-04 Timbro clone offline:** l’utente sceglie lo strumento, clicca una volta sull’immagine per impostare la sorgente e clicca sulla destinazione per applicare un timbro discreto. Non è un pennello a tratto continuo. Il clone campiona i pixel dalla foto sorgente dell’utente; nessun modello generativo o servizio remoto. Dimensione del timbro regolabile; sorgente visibile e operazioni annullabili/ripristinabili.
@@ -24,6 +25,7 @@ Creator o operatore seleziona un’immagine, sceglie una piattaforma e un format
 ## Limiti immagini
 
 - Import: supportare immagini fino a **120 megapixel** e **512 MB** di file codificato. Controllare entrambi i limiti prima di decodificare; dimensioni eccessive devono produrre un errore spiegato, senza esaurire la memoria.
+- Massimo **32.768 pixel per lato**: un'immagine lunga e sottile può superarlo anche sotto 120 MP; il messaggio deve indicare questo limite distinto.
 - Export: massimo **40 megapixel** per immagine renderizzata. I preset attuali sono molto inferiori a questa soglia.
 - Il limite d’importazione deve consentire immagini ad alta risoluzione come il file da circa 40,2 MP della Fujifilm citato come caso d’uso: non introdurre un tetto di 40 MP sull’input.
 
@@ -50,6 +52,10 @@ La versione **v0.1** non include persistenza del progetto/sessione né elaborazi
 ## Indicazioni UI macOS
 
 Usare componenti e comportamenti standard SwiftUI/macOS: finestra ridimensionabile, scorciatoie per le azioni ricorrenti, supporto a puntatore/trackpad e precisione nel canvas. La sidebar dei preset è appropriata per la navigazione tra gruppi, ma deve potersi nascondere e non ospitare azioni critiche in fondo. Tenere pochi comandi frequenti nella toolbar e lasciare che il sistema gestisca l’overflow. Il nome prodotto è **SocialFrame** e l’icona scelta è il concept **B**. Riferimenti: [HIG macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos), [Sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars), [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars).
+
+Zoom e livellamento offrono input numerico, piccoli incrementi e reset del singolo parametro. Pan e clone hanno controlli equivalenti senza puntatore: frecce sull'anteprima, pulsanti di spostamento e coordinate percentuali per sorgente/destinazione del timbro. Il contorno clone rappresenta il raggio effettivo. Le guide della destinazione sono indipendenti dalla griglia e non vengono esportate. Il comando di esportazione e le impostazioni principali rimangono fuori dall'area scorrevole dell'inspector.
+
+Lingua supportata: italiano. Le risorse di UI e core sono localizzabili; il bundle dichiara le lingue per cui esistono risorse. Le traduzioni aggiuntive non sono incluse. La procedura per aggiungerle è in `localizzazione.md`.
 
 
 ## Animazioni

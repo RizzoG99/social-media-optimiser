@@ -60,3 +60,45 @@ Su richiesta dell’utente, aggiunta una fixture con orizzonte noto e varianti a
 Collaudo UI su copia separata: import del campione, menu con sei scelte, visualizzazione della griglia fitta e regolatore visibilità; Autolivella su immagine senza riferimento restituisce il messaggio previsto. Import del file `horizon-plus8-before.png`, comando Autolivella: angolo applicato circa −8,0°, orizzonte visivamente orizzontale anche nel preset verticale. Verificato a schermo con griglia dei terzi. L’undo del nuovo comando è verificato automaticamente; il collaudo export tramite dialogo non è stato completato in questa sessione (annullato il dialogo di prova), mentre pipeline ed export restano coperti dai test.
 
 Restano necessari campioni fotografici reali con orizzonti irregolari, verticali dominanti, architettura e scarso contrasto. La confidenza Vision da sola non garantisce che l’orizzonte scelto sia quello desiderato; la correzione resta verificabile e annullabile.
+
+## Correzioni audit UX/UI e testi — 12 novembre 2026
+
+Piano in `piano-correzioni-ux.md`. Correzioni implementate e sottoposte a un nuovo agent per revisione indipendente dei sorgenti. Applicati tutti i cinque rilievi della revisione: blocco editing durante import anche nel model, contorno clone coerente passando alla tastiera/coordinate, pan nullo senza invalidazione dei timbri, reset sorgente clone alla nuova generazione del documento anche sullo stesso URL, copia di tutte le risorse linguistiche nel bundle. Al ricontrollo aggiunta anche una guardia nei callback di gesti già iniziati prima dell'import. La revisione dell'agent è statica, non un collaudo UI.
+
+### Automatici e build
+
+`swift test --enable-code-coverage`: **38 test passati**, zero errori (17 core, 21 model/geometria/UI di presentazione; nessun XCUITest). Log dell'ultima esecuzione in `.build/ux-final-tests.log`. `./scripts/build-app.sh`: build release finale riuscita; bundle `.build/SocialFrame.app` firmato ad hoc.
+
+I nove nuovi test coprono: messaggio distinto per un PNG lungo 40.000×1 px sotto 120 MP; annullamento della sostituzione e conservazione della cronologia dopo un import fallito; snapshot effettivamente esportato rispetto alle modifiche successive; regolazioni numeriche con limiti, invalidazione e undo; pan tramite helper anche con rotazione; separazione griglia/guide; classificazione delle fonti; azioni bloccate durante import; pan senza movimento che conserva timbri e undo; nuova generazione riaprendo lo stesso URL. Alcuni scenari sono accorpati in un unico test.
+
+`plutil -lint` riuscito sulle due risorse italiane `.strings` e sull'Info.plist. Verificata la presenza di `SocialFrame_SocialFrame.bundle` e `SocialFrame_SocialCore.bundle` nell'app, con risorse italiane; lingua di sviluppo e lingue supportate coerenti (`it`). Non è stata aggiunta né collaudata una seconda traduzione.
+
+### App reale
+
+Usate due copie isolate, `.build/SocialFrameUXReview.app` (`it.socialframe.uxreview`) e `.build/SocialFrameUXFinal.app` (`it.socialframe.uxfinal`), con nome riconoscibile e firma ad hoc. La sessione dell'app principale non è stata modificata. Campione: `Tests/SocialCoreTests/Fixtures/horizon-level.png`, 1024×768 px.
+
+- Menu “Modifica”, “Vista”, “Finestra”, “Aiuto”, comando “Nascondi barra laterale” e pannelli “Apri”/“Salva” osservati in italiano. Il campo di ricerca nativo mantiene la propria etichetta AX di sistema “Search”.
+- Apertura del PNG riuscita tramite pannello collegato alla finestra; il precedente limite del pulsante Apri disabilitato non si è ripresentato selezionando esplicitamente il file.
+- Valore Livella digitato **0,3°**, slider coerente; Annulla riporta a 0°, Ripristina torna a 0,3°. Ripetuto nella build finale.
+- Nella prima copia: attivazione clone, apertura “Posizione del timbro”, sorgente scelta con il pulsante, destinazione X impostata a 70%, applicazione senza clic sul canvas: compare “Elimina timbri (1)”. Etichette dei campi distinguono sorgente/destinazione e asse. Le azioni AX del canvas sono presenti; questo non certifica VoiceOver completo.
+- Esportazione dalla prima copia completata nel pannello: `.build/ux-review-smoke.jpg`. Stato “Esportato … · 1080 × 1350 px”; controllo indipendente `sips`: **1080×1350, sRGB IEC61966-2.1**.
+- Nell'inspector, impostazioni essenziali e comando Esporta restano visibili fuori dall'area scorrevole alla dimensione di finestra osservata. Fonti e dettagli esportazione sono espandibili.
+- Nella build finale, tentativo di riaprire il campione dopo la modifica: compare la conferma con “Esporta e apri…”, “Scarta modifiche e apri”, “Annulla”. Annulla conserva foto e valore 0,3°.
+
+Il secondo tentativo di completare “Esporta e apri” è stato interrotto dal cambio di sessione: alla ripresa la copia finale conteneva una diversa foto dell'utente. Nessuna ulteriore azione è stata inviata a quella sessione per preservarla. **Il ramo completo Esporta e apri attraverso entrambi i pannelli non è dichiarato verificato nella UI.** Export e protezione degli snapshot sono coperti dai test del model e dall'export UI precedente; la continuazione tra i due documenti richiede ancora un collaudo UI dedicato.
+
+Restano da provare VoiceOver completo, navigazione esclusivamente da tastiera lungo l'intero flusso, il contorno clone nel passaggio puntatore→tastiera sulla build finale, guide YouTube con griglia disattivata a schermo, trackpad fisico e trascinamento continuo degli slider con una foto Fujifilm rappresentativa. Nessuna nuova misura di fluidità/FPS: il problema di reattività segnalato precedentemente resta aperto. Nessuna verifica aggiuntiva su macOS 14, Intel, dark mode o Riduci movimento.
+
+## Compatibilità del compilatore CI — PR #1
+
+Il runner `macos-15` con Xcode 16.4 interrompeva la compilazione di `HorizonRefinement.swift` prima dei test: la chiamata `pow` nel calcolo RMS era ambigua tra `CGFloat` e `Double`. La toolchain locale Xcode 27.1 non segnalava l'ambiguità. Il fit ora usa accumuli e coordinate convertiti esplicitamente in `Double`; i quadrati di varianza e residui usano moltiplicazione. Soglie, campionamento e algoritmo non sono stati cambiati. Anche `./scripts/build-app.sh` è riuscito dopo la correzione.
+
+Rieseguiti `swift test --filter HorizonScenarioTests` e `swift test --enable-code-coverage`: tre scenari orizzonte e tutti i **38 test** passati. Residui: 0° nei due scenari con ±8° nello stato; circa 0,112° e 0° importando i campioni già inclinati. Stesse misure precedenti, tolleranza invariata a 1,5°. Campioni generati in `/private/tmp/socialframe-ci.rvpFk9`, senza sovrascrivere gli artefatti versionati; ispezionata visivamente la coppia +8° prima/dopo import, con orizzonte finale orizzontale. Nessun nuovo collaudo dell'interazione: questa correzione riguarda la risoluzione dei tipi nel calcolo numerico. L'esito remoto è consultabile nei check della PR.
+
+### Secondo errore di compilazione: canvas SwiftUI
+
+Con il fit numerico compilato, entrambi i job successivi sono arrivati a `EditorView.canvas`, fermandosi sul limite del type checker di Xcode 16.4. Il canvas è stato scomposto in viste opache per livelli, guide, decorazione, interazioni e accessibilità; anche i tre gesti sono definiti separatamente. Nessun uso di `AnyView`; coordinate, ordine dei modificatori, stato e azioni rimangono quelli precedenti. Le conversioni `CGFloat` del diametro del timbro sono esplicite.
+
+Verifiche locali dopo il refactoring: **38 test passati**, `swift test --enable-code-coverage`, build release `./scripts/build-app.sh` e `git diff --check` riusciti. Non è installata localmente la toolchain Xcode 16.4: la conferma con quella versione richiede il check remoto.
+
+Collaudo su nuova copia isolata `.build/SocialFrameCICanvas.app`, ID `it.socialframe.cicanvas`, senza modificare la sessione `SocialFrame UX Final` dell'utente. Aperto `horizon-level.png` 1024×768; zoom digitato a 2×, spostamento tramite azione accessibile del canvas e due undo distinti fino a 1×; clone attivato, scelta sorgente, spostamento destinazione e applicazione tramite azioni accessibili, con contatore di un timbro. Export dal dialogo completato in `.build/ci-canvas-smoke.jpg`, stato 1080×1350 px. Restano i limiti già elencati per trackpad fisico, fluidità, VoiceOver completo e macOS minimo; questa prova non è un XCUITest.

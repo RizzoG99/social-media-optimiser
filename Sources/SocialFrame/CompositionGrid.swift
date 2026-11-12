@@ -7,12 +7,12 @@ enum CompositionGrid: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .none: return "Nessuna"
-        case .thirds: return "Regola dei terzi"
-        case .goldenRatio: return "Sezione aurea"
-        case .center: return "Centro"
-        case .diagonals: return "Diagonali"
-        case .fine: return "Griglia fitta"
+        case .none: return L10n.text("Nessuna")
+        case .thirds: return L10n.text("Regola dei terzi")
+        case .goldenRatio: return L10n.text("Sezione aurea")
+        case .center: return L10n.text("Centro")
+        case .diagonals: return L10n.text("Diagonali")
+        case .fine: return L10n.text("Griglia fitta")
         }
     }
     struct Line: Equatable {
