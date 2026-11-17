@@ -1,0 +1,7 @@
+interface:
+  display_name: "macOS UI Audit"
+  short_description: "Audits SocialFrame screenshots against the macOS HIG."
+  default_prompt: "Use $macos-ui-audit to audit these SocialFrame screenshots."
+
+policy:
+  allow_implicit_invocation: true

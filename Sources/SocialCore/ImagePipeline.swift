@@ -126,6 +126,9 @@ public final class ImageRenderer {
             ])?.outputImage else { throw SocialCoreError.renderFailed }
             image = blended.cropped(to: rect)
         }
+        if edit.outputSharpening != .none {
+            image = image.clampedToExtent().applyingFilter("CIUnsharpMask", parameters: ["inputRadius": 0.7, "inputIntensity": edit.outputSharpening.intensity]).cropped(to: rect)
+        }
         image = image.transformed(by: CGAffineTransform(scaleX: Double(w) / ow, y: Double(h) / oh))
         guard let result = context.createCGImage(image, from: CGRect(x: 0, y: 0, width: w, height: h), format: .RGBA8, colorSpace: colorSpace) else { throw SocialCoreError.renderFailed }
         return result
@@ -152,6 +155,80 @@ public final class ImageRenderer {
         result.panY = min(ly, max(-ly, edit.panY * sh - (-s * translationX * ow + c * translationY * oh) / scale)) / sh
         result.cloneStrokes = []
         return result
+    }
+
+    /// A wider, clone-free context for manipulating the existing crop.
+    public func cropContext(document: ImageDocument, preset: Preset, edit: EditState) throws -> (edit: EditState, selection: CGRect) {
+        let current = try panned(document: document, preset: preset, edit: edit, translationX: 0, translationY: 0)
+        let sw = Double(document.pixelWidth), sh = Double(document.pixelHeight)
+        let ow = Double(preset.width), oh = Double(preset.height)
+        let angle = (Double(current.quarterTurns % 4) * 90 + current.straightenDegrees.truncatingRemainder(dividingBy: 360)) * .pi / 180
+        let c = cos(angle), s = sin(angle)
+        let fill = max((abs(c) * ow + abs(s) * oh) / sw, (abs(s) * ow + abs(c) * oh) / sh)
+        // Per ogni zoom, dal più ampio: prima la vista centrata e limitata (come in origine);
+        // se la selezione ne esce, l'inquadratura ingrandita attorno a un punto fisso. Contro
+        // un bordo, con un raddrizzamento, il limite del pan (riquadro di ingombro ruotato)
+        // ammette solo l'ingrandimento attorno all'angolo che tocca il bordo: si provano
+        // punti fissi dal centro verso gli angoli.
+        let stops = [0, 0.25, 0.5, 0.75, 1.0]
+        let anchors = stops.flatMap { u in stops.map { v in (u, v) } }
+            .sorted { hypot($0.0 - 0.5, $0.1 - 0.5) < hypot($1.0 - 0.5, $1.1 - 0.5) }
+        for step in 0..<100 {
+            let zoom = 1 + (current.zoom - 1) * Double(step) / 100
+            let side = zoom / current.zoom
+            let scale = fill * zoom
+            // Prima la vista centrata sull'inquadratura e limitata: esatta quando contiene la selezione.
+            var centered = current
+            centered.zoom = zoom
+            centered = try panned(document: document, preset: preset, edit: centered, translationX: 0, translationY: 0)
+            let r = selection(document: document, preset: preset, of: current, in: centered)
+            let t = 0.000001
+            if r.minX >= -t, r.minY >= -t, r.maxX <= 1 + t, r.maxY <= 1 + t {
+                return (centered, CGRect(x: max(0, r.minX), y: max(0, r.minY), width: r.width, height: r.height))
+            }
+            for (u, v) in anchors {
+                let selection = CGRect(x: u * (1 - side), y: v * (1 - side), width: side, height: side)
+                // Offset dell'inquadratura dal centro della vista, riportato nel sorgente.
+                let ox = (selection.midX - 0.5) * ow / scale, oy = (selection.midY - 0.5) * oh / scale
+                var base = current
+                base.zoom = zoom
+                base.panX = current.panX - (c * ox + s * oy) / sw
+                base.panY = current.panY - (-s * ox + c * oy) / sh
+                let limited = try panned(document: document, preset: preset, edit: base, translationX: 0, translationY: 0)
+                guard abs(limited.panX - base.panX) < 1e-9, abs(limited.panY - base.panY) < 1e-9 else { continue }
+                return (limited, selection)
+            }
+        }
+        return (current, CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+
+    /// Posizione di `target` nel risultato di `base`, normalizzata con origine in basso a
+    /// sinistra. Le due modifiche devono avere la stessa rotazione; il lato è il rapporto degli zoom.
+    public func selection(document: ImageDocument, preset: Preset, of target: EditState, in base: EditState) -> CGRect {
+        let sw = Double(document.pixelWidth), sh = Double(document.pixelHeight)
+        let ow = Double(preset.width), oh = Double(preset.height)
+        let angle = (Double(base.quarterTurns % 4) * 90 + base.straightenDegrees.truncatingRemainder(dividingBy: 360)) * .pi / 180
+        let c = cos(angle), s = sin(angle)
+        let fill = max((abs(c) * ow + abs(s) * oh) / sw, (abs(s) * ow + abs(c) * oh) / sh)
+        let dx = (target.panX - base.panX) * sw, dy = (target.panY - base.panY) * sh
+        let side = base.zoom / target.zoom
+        let x = 0.5 + (c * dx - s * dy) * fill * base.zoom / ow - side / 2
+        let y = 0.5 + (s * dx + c * dy) * fill * base.zoom / oh - side / 2
+        return CGRect(x: x, y: y, width: side, height: side)
+    }
+
+    /// Selects a rectangle inside the current output, retaining its aspect ratio.
+    public func cropped(document: ImageDocument, preset: Preset, edit: EditState, rect: CGRect) throws -> EditState {
+        let values = [rect.minX, rect.minY, rect.width, rect.height]
+        guard values.allSatisfy({ $0.isFinite }), rect.width > 0, rect.height > 0,
+              rect.minX >= 0, rect.minY >= 0, rect.maxX <= 1.000001, rect.maxY <= 1.000001,
+              abs(rect.width - rect.height) < 0.00001 else { throw SocialCoreError.invalidEdit }
+        var enlarged = edit
+        enlarged.zoom = edit.zoom / rect.width
+        guard enlarged.zoom <= 8 else { throw SocialCoreError.invalidEdit }
+        return try panned(document: document, preset: preset, edit: enlarged,
+            translationX: (0.5 - rect.midX) / rect.width,
+            translationY: (0.5 - rect.midY) / rect.height)
     }
 
     /// Encodes a rendered image to a new URL. An imported file cannot be overwritten.

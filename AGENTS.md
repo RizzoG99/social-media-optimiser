@@ -20,3 +20,7 @@ Usare le procedure pertinenti senza caricarle tutte per ogni modifica:
 - [image-pipeline-validation](.agents/skills/image-pipeline-validation/SKILL.md): correttezza dei pixel e scenari del motore immagini.
 - [macos-interaction-validation](.agents/skills/macos-interaction-validation/SKILL.md): collaudo dell’app reale, gesti, slider e accessibilità.
 - [social-preset-maintenance](.agents/skills/social-preset-maintenance/SKILL.md): fonti ufficiali, catalogo e vincoli delle destinazioni social.
+- [macos-swiftui-pro](.agents/skills/macos-swiftui-pro/SKILL.md): progetto e revisione della UI SwiftUI secondo HIG macOS e Liquid Glass (finestra, toolbar, sidebar, inspector, disponibilità API). Per la shell prevale su ADR-012 e sui paragrafi Liquid Glass di `docs/requisiti-prodotto.md`.
+- [macos-ui-audit](.agents/skills/macos-ui-audit/SKILL.md): audit di screenshot o dell'app reale rispetto alle HIG macOS.
+
+Le skill stanno in `.agents/skills`; `.claude/skills` e `.codex/skills` contengono symlink relativi per la scoperta nativa. Modificare solo la copia canonica e aggiungere entrambi i symlink per ogni nuova skill.

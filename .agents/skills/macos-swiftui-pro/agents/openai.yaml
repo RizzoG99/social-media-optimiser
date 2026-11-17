@@ -1,0 +1,7 @@
+interface:
+  display_name: "macOS SwiftUI Pro"
+  short_description: "Builds and reviews native macOS UI with Liquid Glass."
+  default_prompt: "Use $macos-swiftui-pro to design or review this SocialFrame interface change."
+
+policy:
+  allow_implicit_invocation: true

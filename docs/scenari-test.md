@@ -1,5 +1,17 @@
 # Scenari di test e accettazione
 
+## Editor con maniglie e vista indipendente
+
+- Aprire una foto: aperto solo il gruppo del formato selezionato; espandere e richiudere più gruppi senza cambiare il preset.
+- Scegliere sfondo bianco/nero/grigio da Vista › Sfondo; verificare che il canvas non sia incluso nell’export.
+- Ritagliare da ogni bordo e angolo, applicare, annullare/ripristinare; ripetere con rotazione, livellamento, timbri e limite 8×. Esc conserva geometria e timbri.
+- Riattivare Ritaglia dopo lo zoom: il contesto più ampio e la selezione devono ricostruire l’inquadratura corrente. Applica senza movimento non aggiunge undo e conserva timbri.
+- Doppio clic foto alterna Adatta/100% senza cambiare la composizione; controllare griglie, coordinate clone e Spazio+drag della vista.
+- Doppio clic slider ripristina il default; undo geometrico torna direttamente al valore precedente, senza il primo clic intermedio.
+- Confrontare i quattro livelli di nitidezza a 100% su dettagli e superfici uniformi. Esportare JPEG/PNG con dimensioni e sRGB corretti.
+- Ripetere in italiano/inglese, con numeri locali, finestra minima, accessibilità e Riduci movimento.
+- Shell (ADR-013): titolo = nome del file, sottotitolo con preset e pixel; ogni comando della toolbar raggiungibile anche dal menu con la stessa disabilitazione; Adatta/Dimensioni reali/Ingrandisci/Riduci dal menu Vista e disattivati durante il ritaglio; un solo Esporta prominente; inspector senza etichette doppie; alla larghezza minima con inspector aperto il sistema gestisce l’overflow della toolbar.
+
 Questa matrice comprende scenari automatici e manuali. Lo stato di esecuzione è riportato sotto e in `verifica.md`.
 
 | ID | Scenario | Risultato atteso |
