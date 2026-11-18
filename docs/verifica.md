@@ -4,12 +4,49 @@
 
 Implementati F-11…F-13: `PhotoItem`/`ExportPlan`/`PhotoImport` in `Sources/SocialFrame/PhotoSet.swift`, pellicola in `Filmstrip.swift`, set e Esporta tutto in `EditorModel`, comandi in `EditorCommands`, avviso d'uscita in `SocialFrameApp`. Requisiti e analisi in `docs/analisi-set-foto.md`.
 
-### Limiti di questa verifica
+### Automatici e build — 18 novembre 2026
 
-- **Non compilato né eseguito.** Il codice è stato scritto in un container Linux senza toolchain Swift né SDK macOS: `swift test --enable-code-coverage` e `./scripts/build-app.sh` **non sono stati eseguiti**. Vanno lanciati su macOS prima del merge; eventuali errori di compilazione o test falliti sono attesi da correggere in quella fase.
-- Nuovi test model in `Tests/SocialFrameTests/PhotoSetModelTests.swift` (import multiplo, cartella non ricorsiva, duplicati via symlink, Aggiungi/Sostituisci con file illeggibili, conservazione per foto di modifiche/preset/cronologia, selezione rapida, navigazione ai bordi, badge, rimozione, pianificazione nomi, Esporta tutto con conflitti e protezione degli originali). Sono test del model, non XCUITest. Adattati tre test esistenti (`EditorModelTests`, `UXRegressionTests`) al nuovo flusso: con un set aperto, `open` chiede Aggiungi/Sostituisci invece di sostituire.
-- Nessun collaudo dell'app reale (scenari T-17…T-27, `macos-interaction-validation`), nessuna prova visiva della pellicola in tema chiaro/scuro, VoiceOver, Riduci movimento o finestra minima: voci aperte del quality gate di `macos-swiftui-pro`.
-- Limite noto: aprire più file dal Finder con "Apri con" invia un URL alla volta; dal secondo file compare la domanda Aggiungi/Sostituisci.
+- Patch del ramo cloud applicata senza conflitti su `main` (`91a8f10`). Prima compilazione su macOS (Swift 6.4, SDK MacOSX27.0): `swift build --build-tests` e `./scripts/build-app.sh` riusciti al primo tentativo, **nessun errore e nessun avviso** (build pulita dei target `SocialFrame` e `SocialFrameTests`). Nessuna delle correzioni previste (closure `Task.detached`, inferenza delle tuple in `exportAll`, `Sendable`, `Button(_:systemImage:role:)` su macOS 14, `NSApplicationDelegateAdaptor` con delegate `@MainActor`) è stata necessaria.
+- `swift test --enable-code-coverage`: **63 test passati**, zero errori (62 del ramo, inclusi i 12 di `PhotoSetModelTests`, più il nuovo `EditorShellTests.testSetCountsUseSingularForOneItem`). `vtool -show-build`: `minos 14.0`, `sdk 27.0`.
+- I test model restano tali: non sono XCUITest.
+
+### App reale — 18 novembre 2026
+
+`.build/SocialFrame.app` (build release dello script, `it.socialframe.editor`), nessuna sessione utente aperta. Lingua di sistema inglese: menu e dialoghi provati in `en`. Campioni sintetici PNG in `.build/qa` (non versionati): `set5/foto-1…5.png` (1600×1067 e 1067×1600 alternati), `cartella/` con `a/b/c.png` 1200×900, sottocartella `sotto/`, `note.txt` e symlink `link-foto-1.png` → `set5/foto-1.png`; cartella `export/` con un file preesistente `foto-2-instagram-portrait.jpg`. Pannelli Apri/Esporta guidati con Vai alla cartella; trascinamento dal Finder.
+
+| Scenario | Azioni | Esito |
+|---|---|---|
+| T-17 | Apri immagini… con 5 file selezionati; poi la cartella `cartella` | 5 miniature del risultato ritagliato, prima foto attiva, "Photo 1 of 5". Dalla cartella +3 (ordine a, b, c), sottocartella e `.txt` ignorati, prima foto nuova attiva, "Photo 6 of 8". **Superato.** |
+| T-18 | Symlink a `foto-1` nella cartella; trascinamento di a/b/c già presenti → Aggiungi | Symlink non aggiunto; secondo trascinamento: "The chosen photos are already in the set.", nessun doppione. **Superato.** |
+| T-19 | Foto 1: Square, zoom 102 %, raddrizza 0,1°; ⌘→⌘→ alla 3, zoom 101 %; ⌘←⌘← | Foto 1 intatta (preset, zoom, angolo, badge); foto 3 con modifica propria. Quattro ⌘Z sulla foto 1 tornano a Portrait/100/0 e tolgono il badge, la foto 3 resta modificata; quattro ⇧⌘Z ripristinano. **Superato.** |
+| T-20 | ⌘→ ripetuto a ~0,8 s | Si apre l'ultima foto richiesta. Selezione più rapida del decode coperta solo dal test model `testRapidSelectionShowsOnlyTheLastRequestedPhoto`. **Parziale.** |
+| T-21 | Apri con set aperto; trascinamento con set aperto | Dialogo Add to Set / Replace Set / Cancel sia dal pannello sia dal trascinamento; Aggiungi conserva il set. Sostituisci con modifiche non esportate e import di soli file illeggibili: **solo test model**. |
+| T-22 | Modifica → Esporta tutto → nuova modifica → ⌘Z | Badge arancione → verde → arancione → verde. **Superato.** |
+| T-23 | Canc su foto esportata; Canc su foto modificata | Nessuna domanda sulla prima, selezionata la vicina; sulla seconda "Remove the photo from the set?" → Remove, selezionata la vicina. File su disco invariati. Rimozione dell'ultima foto: solo test model. **Superato** (tranne ultima foto). |
+| T-24 | ⌘← su foto 1; ← con focus nella pellicola; ← sul canvas; Vista › Hide/Show Filmstrip | ⌘← fermo al bordo; ← nella pellicola cambia foto; ← sul canvas sposta l'inquadratura e la foto resta; pellicola nascosta/mostrata, "Photo n of m" resta nella barra di stato. **Superato.** |
+| T-25 | Esporta tutto (⌥⇧⌘E) in `export/` con 1 conflitto → Keep Both; ripetuto con 8 conflitti → Replace | Una sola domanda. Keep Both: file preesistente intatto, nuova copia `foto-2-instagram-portrait-2.jpg`. Replace: sovrascritti gli 8 nomi base, `-2` intatto. Ogni JPEG con le dimensioni del preset della sua foto (`foto-1-instagram-square.jpg` 1080×1080, le altre 1080×1350); "Exported 8 of 8 photos to export"; tutti i badge "esportata". **Superato.** |
+| T-26 | — | Nome di export coincidente con un originale del set: **solo test model** (`testExportAllNeverOverwritesAnOriginalOfTheSet`, `testExportPlanAddsSuffixesAndNeverTargetsOriginals`). Data di modifica degli originali in `set5/` e `cartella/` invariata dopo export e rimozioni. |
+| T-27 | ⌘Q con foto modificate → Cancel / Invio / Quit; ⌘Q senza modifiche non esportate | Avviso "Quit without exporting?"; Cancel e Invio lasciano app e set; Quit chiude. Senza modifiche non esportate l'app esce subito. **Superato.** |
+
+Quality gate `macos-swiftui-pro`:
+
+- **Tema scuro e chiaro:** scuro con il tema di sistema; chiaro avviando il bundle con `-NSRequiresAquaSystemAppearance YES` (solo argomento di avvio, preferenze dell'utente non toccate). Pellicola, badge, anello di selezione e dialoghi leggibili in entrambi.
+- **Finestra minima:** ridotta a 1020×680 punti di contenuto con pellicola visibile: canvas, 6 miniature e barra di stato ("Photo 2 of 6 · View 74% · sRGB") restano interi.
+- **Accessibilità:** albero AX con un `AXButton` per miniatura ed etichetta = nome del file. Valore di stato ("Edited, not exported"/"Exported"/"No changes") e tratto selezionato verificati solo nel codice: lettura AX da script negata (osascript senza accesso Accessibilità) e VoiceOver non avviato. **Non provato con VoiceOver.**
+- **Riduci movimento:** non attivato per non cambiare le preferenze di sistema. Verificato nel codice: `FilmstripView` scorre senza animazione con `accessibilityReduceMotion`, e la `transaction` di `EditorView` disattiva le animazioni. **Non provato a schermo.**
+
+### Difetti trovati e corretti
+
+- **"1 files already exist in the folder."** I conteggi del set non avevano il singolare (anche "1 file non importati", "Export 1 photos", "Exported 1 of 1 photos"). Aggiunti `Localizable.stringsdict` in `it` ed `en` con regole plurali per le chiavi coinvolte; le voci di `Localizable.strings` restano come ripiego e per il test delle chiavi. Nuovo test `testSetCountsUseSingularForOneItem`. Verificato nell'app: "A file already exists in the folder."
+- **Avviso di uscita con Esci predefinito.** Invio sceglieva l'azione che scarta il set. Ora Esci è distruttivo (rosso) e senza tasto Invio, Annulla è il pulsante predefinito (HIG). Verificato: Invio annulla.
+- **Anello di focus della pellicola sotto l'inspector.** Con l'inspector flottante di macOS 26 la vista di scorrimento si estende sotto il pannello e l'anello di sistema lo attraversava. La pellicola è ora ritagliata come il canvas, l'anello di sistema è disattivato e il focus si mostra con un secondo bordo d'accento sulla miniatura selezionata, solo mentre la pellicola ha il focus. Verificato in chiaro: compare al clic sulla miniatura e scompare quando il focus passa al canvas.
+
+### Limiti
+
+- Il primo clic su una finestra inattiva la attiva soltanto: la pellicola prende il focus dal clic successivo (comportamento di sistema).
+- Nel trascinamento dal Finder l'ordine è quello del pasteboard (b, a, c nella prova), non alfabetico; l'ordinamento del Finder vale per le cartelle.
+- Aprire più file dal Finder con "Apri con" invia un URL alla volta; dal secondo file compare la domanda Aggiungi/Sostituisci.
+- Non provati nell'app: Sostituisci con modifiche non esportate, import di soli file illeggibili, rimozione dell'ultima foto, export nella cartella degli originali con nome coincidente, selezione più veloce del decode, VoiceOver e Riduci movimento a schermo. Coperti dai test model indicati sopra, tranne VoiceOver e Riduci movimento.
 
 ## Shell HIG (ADR-013) — 12 novembre 2026
 

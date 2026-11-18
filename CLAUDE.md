@@ -48,7 +48,7 @@ Due target SwiftPM: `SocialCore` (libreria, motore immagini senza UI) e `SocialF
 ### Dati legati che vanno aggiornati insieme
 
 - **Preset:** dimensioni in `Preset.swift`, stato della specifica e URL fonte in `PresetInfo.swift`, guide/data in `EditorView.swift`, catalogo e fonti in `docs/preset-e-fonti.md`.
-- **Localizzazione:** due `Localizable.strings` (`Sources/SocialCore/Resources/it.lproj` per gli errori, `Sources/SocialFrame/Resources/it.lproj` per la UI). `L10n` legge `Bundle.module`; le etichette SwiftUI letterali leggono il bundle principale e si risolvono solo nel `.app`, perché `build-app.sh` vi copia le cartelle `.lproj`. Dettagli in `docs/localizzazione.md`.
+- **Localizzazione:** due `Localizable.strings` (`Sources/SocialCore/Resources/it.lproj` per gli errori, `Sources/SocialFrame/Resources/it.lproj` per la UI). I conteggi della UI hanno anche le regole plurali in `Localizable.stringsdict` (stesse chiavi, `.strings` resta il ripiego). `L10n` legge `Bundle.module`; le etichette SwiftUI letterali leggono il bundle principale e si risolvono solo nel `.app`, perché `build-app.sh` vi copia le cartelle `.lproj`. Dettagli in `docs/localizzazione.md`.
 
 ## Documentazione e procedure
 

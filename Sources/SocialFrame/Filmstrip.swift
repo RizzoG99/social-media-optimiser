@@ -13,7 +13,7 @@ struct FilmstripView: View {
                 LazyHStack(spacing: 8) {
                     ForEach(model.items) { item in
                         FilmstripCell(item: item, status: model.photoStatus(of: item),
-                                      selected: item.id == model.selectedItemID) {
+                                      selected: item.id == model.selectedItemID, focused: focused) {
                             focused = true
                             model.select(item.id)
                         }
@@ -30,7 +30,12 @@ struct FilmstripView: View {
                 .padding(.vertical, 8)
             }
             .frame(height: 92)
+            // Come il canvas: niente miniature sotto l'inspector flottante.
+            .clipped()
             .focusable()
+            // L'anello di sistema seguirebbe la vista di scorrimento sotto
+            // l'inspector: il focus si mostra sulla miniatura selezionata.
+            .focusEffectDisabled()
             .focused($focused)
             .onMoveCommand { direction in
                 switch direction {
@@ -58,6 +63,7 @@ private struct FilmstripCell: View {
     let item: PhotoItem
     let status: PhotoStatus
     let selected: Bool
+    let focused: Bool
     let action: () -> Void
 
     var body: some View {
@@ -73,6 +79,13 @@ private struct FilmstripCell: View {
                                       lineWidth: selected ? 3 : 1)
                 }
                 .overlay(alignment: .topTrailing) { badge.padding(6) }
+                .padding(3)
+                .overlay {
+                    if selected && focused {
+                        RoundedRectangle(cornerRadius: 9)
+                            .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 3)
+                    }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

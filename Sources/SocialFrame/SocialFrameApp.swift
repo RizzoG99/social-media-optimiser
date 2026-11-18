@@ -33,8 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = .warning
         alert.messageText = L10n.text("Uscire senza esportare?")
         alert.informativeText = L10n.text("Alcune foto hanno modifiche non esportate. Il set non viene salvato: uscendo le perderai.")
-        alert.addButton(withTitle: L10n.text("Esci"))
-        alert.addButton(withTitle: L10n.text("Annulla"))
+        // Uscire scarta il set: azione distruttiva, mai sul tasto Invio (HIG).
+        let quit = alert.addButton(withTitle: L10n.text("Esci"))
+        quit.hasDestructiveAction = true
+        quit.keyEquivalent = ""
+        let cancel = alert.addButton(withTitle: L10n.text("Annulla"))
+        cancel.keyEquivalent = "\r"
         return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
 }

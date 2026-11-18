@@ -2,7 +2,7 @@
 
 **Stato:** in sviluppo sul ramo `claude/elegant-archimedes-frp9h9` · **Data:** 18 novembre 2026 · **Requisiti:** F-11, F-12, F-13 · **Decisione:** ADR-014 · **Scenari:** T-17…T-27
 
-> Testo preparato come issue GitHub. La creazione dell'issue è stata rifiutata dall'integrazione (HTTP 403: l'app GitHub non ha il permesso di scrittura sulle issue); questo file è la fonte versionata finché l'issue non viene aperta.
+> Issue GitHub: [RizzoG99/social-media-optimiser#5](https://github.com/RizzoG99/social-media-optimiser/issues/5). Questo file è la copia versionata del testo.
 
 ## Contesto e problema
 
