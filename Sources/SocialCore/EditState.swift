@@ -15,7 +15,13 @@ public struct CloneStroke: Equatable, Sendable {
     }
 }
 
+public enum OutputSharpening: String, CaseIterable, Sendable {
+    case none, low, standard, high
+    public var intensity: Double { switch self { case .none: return 0; case .low: return 0.2; case .standard: return 0.4; case .high: return 0.6 } }
+}
+
 public struct EditState: Equatable, Sendable {
+    public var outputSharpening: OutputSharpening = .none
     public var panX: Double
     public var panY: Double
     public var zoom: Double

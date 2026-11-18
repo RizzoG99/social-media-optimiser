@@ -2,11 +2,20 @@ import SwiftUI
 import SocialCore
 import UniformTypeIdentifiers
 
+/// Shell dell'editor secondo HIG macOS: titolo = file aperto, preset nel
+/// sottotitolo, toolbar di sistema, sidebar `List`, inspector `Form`.
+/// Il vetro arriva dai container di sistema; la foto resta nel livello contenuto.
 struct EditorView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: EditorModel
+    @ObservedObject var viewState: EditorViewState
     @State private var dragOrigin: EditState?
     @State private var magnifyOrigin: Double?
+    @AppStorage("canvasBackground") private var canvasBackground = "gray"
+    @State private var expandedPlatforms: Set<Platform> = []
+    @State private var viewDragOrigin: CGSize?
+    @State private var cropping = false
+    @State private var cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     @State private var cloneMode = false
     @State private var cloneSource: CGPoint?
     @State private var cloneRadius = 0.035
@@ -21,76 +30,31 @@ struct EditorView: View {
     private var interfaceAnimation: Animation? {
         reduceMotion ? nil : .easeInOut(duration: 0.18)
     }
-    private var disclosureTransition: AnyTransition {
-        reduceMotion ? .identity : .opacity.combined(with: .move(edge: .top))
-    }
+    private var editingDisabled: Bool { model.document == nil || model.isLoading }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: Binding(get: { model.preset.id }, set: { id in
-                if let p = Preset.all.first(where: { $0.id == id }) { model.selectPreset(p) }
-            })) {
-                ForEach(Platform.allCases, id: \.self) { platform in
-                    Section(platform.rawValue) {
-                        ForEach(Preset.all.filter { $0.platform == platform }) { preset in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(preset.localizedName).font(.body)
-                                Text("\(preset.width) × \(preset.height)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                            }
-                            .padding(.vertical, 3)
-                            .tag(preset.id)
-                            .accessibilityIdentifier("preset-\(preset.id)")
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Formati social")
-            .disabled(model.isLoading)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 225, max: 300)
+            sidebar
         } detail: {
-            HSplitView {
-                VStack(spacing: 0) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(model.sourceURL?.lastPathComponent ?? L10n.text("Una foto, tutti i formati."))
-                                .font(.headline).lineLimit(1)
-                            Text(model.document == nil ? L10n.text("Prepara le tue immagini per i social.") : L10n.format("%@ · originale", model.imageDescription))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if model.isLoading || model.isExporting || model.isRendering { ProgressView().controlSize(.small) }
-                    }
-                    .padding(20)
-                    Divider()
-                    canvas
-                        .disabled(model.isLoading)
-                        .allowsHitTesting(!model.isLoading)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(nsColor: .underPageBackgroundColor))
-                        .animation(interfaceAnimation, value: model.preview != nil)
-                    Divider()
-                    HStack {
-                        Text(model.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                            .contentTransition(.opacity)
-                            .animation(interfaceAnimation, value: model.status)
-                        Spacer()
-                        Text("sRGB").font(.caption.monospaced()).foregroundStyle(.secondary)
-                    }.padding(12)
-                }.frame(minWidth: 460)
-                inspector.frame(width: 300)
+            VStack(spacing: 0) {
+                canvas
+                    .disabled(model.isLoading)
+                    .allowsHitTesting(!model.isLoading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(canvasColor)
+                    .clipped()
+                    .animation(interfaceAnimation, value: model.preview != nil)
+                Divider()
+                statusBar
             }
-            .navigationTitle("SocialFrame")
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button(action: model.chooseImage) { Label("Apri", systemImage: "photo.on.rectangle") }
-                    .help("Apri un’immagine (⌘O)").accessibilityIdentifier("open-image")
-                Button(action: model.undo) { Label("Annulla", systemImage: "arrow.uturn.backward") }.disabled(!model.canUndo)
-                Button(action: model.redo) { Label("Ripristina", systemImage: "arrow.uturn.forward") }.disabled(!model.canRedo)
-                Button(action: model.export) { Label("Esporta…", systemImage: "square.and.arrow.up") }
-                    .disabled(model.document == nil || model.isExporting || model.isLoading).accessibilityIdentifier("export-image")
+            .frame(minWidth: 460)
+            .navigationTitle(model.windowTitle)
+            .navigationSubtitle(model.preset.windowSubtitle)
+            .inspector(isPresented: $viewState.inspectorVisible) {
+                inspector.inspectorColumnWidth(min: 260, ideal: 300, max: 360)
             }
         }
+        .toolbar { toolbarContent }
         .dropDestination(for: URL.self) { urls, _ in
             guard let url = urls.first else { return false }
             model.open(url); return true
@@ -110,26 +74,160 @@ struct EditorView: View {
             if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
         }
         .onChange(of: model.sourceURL) { _, _ in cloneSource = nil; hoverPoint = nil }
+        .onChange(of: viewState.tool) { _, tool in
+            if tool == .crop { startCropMode() }
+            else { cropping = false; model.cancelCrop() }
+            if tool != .tools { cloneMode = false }
+        }
+        .onChange(of: viewState.viewAt100) { _, value in model.fullResolutionPreview = value }
         .onChange(of: model.documentGeneration) { _, _ in cloneSource = nil; hoverPoint = nil; cloneTarget = CGPoint(x: 0.5, y: 0.5) }
         .onChange(of: cloneTarget) { _, _ in hoverPoint = nil }
-        .onChange(of: model.preset) { _, _ in cloneSource = nil }
+        .onChange(of: model.preset) { _, _ in cloneSource = nil; resetView(); viewState.tool = .composition }
+        .onChange(of: model.documentGeneration) { _, _ in resetView(); viewState.tool = .composition }
         .onChange(of: model.edit) { old, new in
+            if viewState.tool == .crop {
+                // Livella e Autolivella cambiano solo la rotazione: la selezione trascinata
+                // resta, riportata nel nuovo contesto. Ogni altra modifica (annulla, ripristina)
+                // riparte dall'inquadratura corrente.
+                let onlyStraighten = old.straightenDegrees != new.straightenDegrees &&
+                    old.zoom == new.zoom && old.quarterTurns == new.quarterTurns
+                startCropMode(keeping: onlyStraighten ? model.cropTarget(for: bottomOriginCropRect) : nil)
+            }
             if old.panX != new.panX || old.panY != new.panY || old.zoom != new.zoom ||
                 old.straightenDegrees != new.straightenDegrees || old.quarterTurns != new.quarterTurns {
                 cloneSource = nil
             }
         }
-        .onChange(of: cloneMode) { _, _ in hoverPoint = nil; NSCursor.arrow.set() }
+        .onChange(of: cloneMode) { _, enabled in
+            hoverPoint = nil; NSCursor.arrow.set()
+            if enabled && cropping { resetView() }
+        }
         .onChange(of: model.isLoading) { _, loading in
             if loading { dragOrigin = nil; magnifyOrigin = nil; hoverPoint = nil }
+            if loading { resetView(); viewState.tool = .composition }
         }
+    }
+
+    private var canvasColor: Color {
+        switch canvasBackground {
+        case "white": return .white
+        case "black": return .black
+        default: return Color(white: 0.45)
+        }
+    }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        List(selection: Binding(get: { model.preset.id }, set: { id in
+            if let p = Preset.all.first(where: { $0.id == id }) { model.selectPreset(p) }
+        })) {
+            ForEach(Platform.allCases, id: \.self) { platform in
+                Section(isExpanded: expansion(for: platform)) {
+                    ForEach(Preset.all.filter { $0.platform == platform }) { preset in
+                        presetRow(preset)
+                    }
+                } header: {
+                    Text(L10n.text(platform.rawValue))
+                }
+            }
+        }
+        .disabled(model.isLoading)
+        // La selezione deve restare visibile: si apre il gruppo del formato attivo.
+        .onAppear { expandedPlatforms.insert(model.preset.platform) }
+        .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
+    }
+
+    private func expansion(for platform: Platform) -> Binding<Bool> {
+        Binding(get: { expandedPlatforms.contains(platform) },
+                set: { if $0 { expandedPlatforms.insert(platform) } else { expandedPlatforms.remove(platform) } })
+    }
+
+    private func presetRow(_ preset: Preset) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(preset.localizedName)
+                Text(preset.sizeDescription).font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+            }
+        } icon: {
+            Image(systemName: preset.aspectSymbol)
+        }
+        .tag(preset.id)
+        .accessibilityIdentifier("preset-\(preset.id)")
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            Picker(L10n.text("Strumento"), selection: $viewState.tool) {
+                ForEach(EditorTool.allCases) { tool in Text(tool.title).tag(tool) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .disabled(editingDisabled)
+            .help(L10n.text("Strumento"))
+            .accessibilityIdentifier("editor-mode")
+        }
+        // Comandi frequenti e inspector in un gruppo; Esporta, unica azione
+        // prominente, da sola sul bordo trailing (massimo tre gruppi).
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button(L10n.text("Ruota 90°"), systemImage: "rotate.left", action: model.rotate)
+                .help(L10n.text("Ruota 90° (⌘L)"))
+                .accessibilityIdentifier("rotate-image")
+                .disabled(editingDisabled)
+            Button(L10n.text("Inspector"), systemImage: "sidebar.trailing") { viewState.inspectorVisible.toggle() }
+                .help(L10n.text("Mostra o nascondi inspector"))
+                .accessibilityIdentifier("toggle-inspector")
+        }
+        #if compiler(>=6.2)
+        EditorToolbarSeparator()
+        #endif
+        ToolbarItem(placement: .primaryAction) {
+            Button(L10n.text("Esporta…"), systemImage: "square.and.arrow.up", action: model.export)
+                .editorPrimaryAction()
+                .help(L10n.text("Esporta una copia (⇧⌘E)"))
+                .accessibilityIdentifier("export-image")
+                .disabled(model.document == nil || model.isExporting || model.isLoading)
+        }
+    }
+
+    // MARK: - Barra di stato
+
+    /// Solo stato breve, come la barra di stato del Finder: nessun controllo.
+    private var statusBar: some View {
+        HStack(spacing: 8) {
+            if model.isLoading || model.isExporting || model.isRendering {
+                ProgressView().controlSize(.small)
+            }
+            Text(model.status).lineLimit(1).truncationMode(.middle)
+                .contentTransition(.opacity)
+                .animation(interfaceAnimation, value: model.status)
+            Spacer(minLength: 12)
+            if model.document != nil {
+                Text(L10n.format("Vista %d%%", Int((viewState.currentScale * 100).rounded()))).monospacedDigit()
+            }
+            Text("sRGB").monospaced()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder private var canvas: some View {
         if let image = model.preview {
             GeometryReader { proxy in
-                let size = fittedCanvasSize(in: proxy.size)
-                accessibleCanvas(image: image, size: size, container: proxy.size)
+                let fitted = fittedCanvasSize(in: proxy.size)
+                let backing = NSScreen.main?.backingScaleFactor ?? 2
+                let fitScale = min(4, max(0.1, Double(fitted.width * backing / CGFloat(model.preset.width))))
+                let size = viewState.viewAt100 ? CGSize(width: CGFloat(model.preset.width) * viewState.viewScale / backing, height: CGFloat(model.preset.height) * viewState.viewScale / backing) : fitted
+                accessibleCanvas(image: cropping ? (model.cropPreview ?? image) : image, size: size, container: proxy.size)
+                    .offset(viewState.viewOffset)
+                    .overlay { if cropping, model.cropPreview != nil { CropOverlay(rect: $cropRect, minimum: model.minimumCropSide).frame(width: size.width, height: size.height).position(x: proxy.size.width / 2, y: proxy.size.height / 2) } }
+                    .onAppear { viewState.fittedViewScale = fitScale }
+                    .onChange(of: fitScale) { _, scale in viewState.fittedViewScale = scale }
             }
             .transition(reduceMotion ? .identity : .opacity)
         } else {
@@ -138,7 +236,7 @@ struct EditorView: View {
             } description: {
                 Text("Trascina qui una foto oppure aprila dal Mac.\nScegli un formato e trova la tua inquadratura.")
             } actions: {
-                Button("Apri immagine…", action: model.chooseImage).buttonStyle(.borderedProminent)
+                Button("Apri immagine…", action: model.chooseImage).controlSize(.large)
             }
             .transition(reduceMotion ? .identity : .opacity)
         }
@@ -158,7 +256,7 @@ struct EditorView: View {
             Image(nsImage: image).resizable().interpolation(.high)
             if model.showGrid { compositionGridOverlay }
             bannerGuide(size: size)
-            cloneOverlay(size: size)
+            if !cropping { cloneOverlay(size: size) }
             if model.showDestinationGuides && model.preset.id.hasSuffix("-profile") {
                 Circle().stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
                     .allowsHitTesting(false)
@@ -223,10 +321,12 @@ struct EditorView: View {
 
     private func interactiveCanvas(image: NSImage, size: CGSize) -> some View {
         decoratedCanvas(image: image, size: size)
+            .overlay { if !cropping { CanvasPointer(clone: cloneMode).allowsHitTesting(false) } }
             .gesture(panGesture(size: size))
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
+                    if !cloneMode { NSCursor.openHand.set() }
                     if cloneMode {
                         NSCursor.crosshair.set()
                         hoverPoint = normalizedPoint(location, in: size)
@@ -236,23 +336,36 @@ struct EditorView: View {
             }
             .simultaneousGesture(cloneGesture(size: size))
             .simultaneousGesture(magnifyGesture)
+            .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { tap in
+                guard !cloneMode, !cropping else { return }
+                let scale = CGFloat(model.preset.width) / (NSScreen.main?.backingScaleFactor ?? 2) / size.width
+                viewState.viewOffset = viewState.viewAt100 ? .zero : CGSize(width: (size.width / 2 - tap.location.x) * scale, height: (size.height / 2 - tap.location.y) * scale)
+                viewState.viewScale = 1
+                viewState.viewAt100.toggle()
+            })
     }
 
     private func panGesture(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1).onChanged { value in
-            guard !model.isLoading, !cloneMode else { return }
+            guard !model.isLoading, !cloneMode, !cropping else { return }
+            if viewState.viewAt100 && CGEventSource.keyState(.combinedSessionState, key: 49) {
+                if viewDragOrigin == nil { viewDragOrigin = viewState.viewOffset }
+                viewState.viewOffset = CGSize(width: viewDragOrigin!.width + value.translation.width, height: viewDragOrigin!.height + value.translation.height)
+                return
+            }
+            NSCursor.closedHand.set()
             if dragOrigin == nil {
                 model.checkpoint(); model.clearCloneStrokes(); cloneSource = nil; dragOrigin = model.edit
             }
             guard let origin = dragOrigin else { return }
             model.pan(from: origin, translationX: Double(value.translation.width / size.width),
                       translationY: -Double(value.translation.height / size.height))
-        }.onEnded { _ in dragOrigin = nil }
+        }.onEnded { _ in dragOrigin = nil; viewDragOrigin = nil; NSCursor.openHand.set() }
     }
 
     private func cloneGesture(size: CGSize) -> some Gesture {
         SpatialTapGesture().onEnded { value in
-            guard !model.isLoading, cloneMode else { return }
+            guard !model.isLoading, cloneMode, !cropping else { return }
             canvasFocused = true
             let point = normalizedPoint(value.location, in: size)
             cloneTarget = point
@@ -266,7 +379,7 @@ struct EditorView: View {
 
     private var magnifyGesture: some Gesture {
         MagnifyGesture().onChanged { value in
-            guard !model.isLoading else { return }
+            guard !model.isLoading, !cropping, !cloneMode else { return }
             if magnifyOrigin == nil {
                 model.checkpoint(); model.clearCloneStrokes(); cloneSource = nil; magnifyOrigin = model.edit.zoom
             }
@@ -282,6 +395,7 @@ struct EditorView: View {
         interactiveCanvas(image: image, size: size)
             .position(x: container.width / 2, y: container.height / 2)
             .focusable()
+            .focusEffectDisabled()
             .focused($canvasFocused)
             .onMoveCommand(perform: moveCanvas)
             .onKeyPress(.space) {
@@ -316,127 +430,197 @@ struct EditorView: View {
         }
     }
 
-    private var inspector: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(model.preset.platform.rawValue).font(.caption).foregroundStyle(.secondary)
-                        Text(model.preset.localizedName).font(.title3.bold())
-                        Text("\(model.preset.width) × \(model.preset.height) px").monospacedDigit()
-                        DisclosureGroup("Fonte del formato", isExpanded: $showSourceDetails) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(model.preset.referenceNote).font(.caption)
-                                Text(model.preset.verificationNote).font(.caption2).foregroundStyle(.secondary)
-                                Link("Specifiche della piattaforma ↗", destination: model.preset.referenceURL).font(.caption)
-                            }.padding(.top, 4)
-                        }.font(.caption)
-                    }
-                    Divider()
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Inquadratura").font(.headline)
-                        PrecisionAdjustment(title: L10n.text("Zoom"), value: model.edit.zoom, range: 1...8, step: 0.01, initial: 1, digits: 2, unit: "×", update: model.setZoom)
-                        PrecisionAdjustment(title: L10n.text("Livella"), value: model.edit.straightenDegrees, range: -45...45, step: 0.1, initial: 0, digits: 1, unit: "°", update: model.setStraighten)
-                        HStack {
-                            Button(action: model.rotate) { Label("Ruota 90°", systemImage: "rotate.left") }
-                            Spacer()
-                            Button("Azzera modifiche", action: model.reset)
-                                .help("Ripristina l’inquadratura iniziale ed elimina i timbri. Puoi annullare con ⌘Z.")
-                        }.controlSize(.small)
-                        Button(action: model.autoLevel) {
-                            Label(model.isAutoLeveling ? L10n.text("Analisi…") : L10n.text("Autolivella"), systemImage: "level")
-                        }
-                        .disabled(model.isAutoLeveling || model.isLoading)
-                        .accessibilityIdentifier("auto-level")
-                        .help("Stima l’orizzonte sul Mac. Controlla il risultato; puoi annullare con ⌘Z.")
-                        if let message = model.autoLevelMessage {
-                            Text(message).font(.caption).foregroundStyle(.secondary)
-                                .accessibilityIdentifier("auto-level-result")
-                        }
-                        DisclosureGroup("Sposta foto") {
-                            HStack {
-                                Button { move(horizontal: -0.01, vertical: 0) } label: { Image(systemName: "arrow.left") }.accessibilityLabel("Sposta a sinistra")
-                                Button { move(horizontal: 0.01, vertical: 0) } label: { Image(systemName: "arrow.right") }.accessibilityLabel("Sposta a destra")
-                                Button { move(horizontal: 0, vertical: 0.01) } label: { Image(systemName: "arrow.up") }.accessibilityLabel("Sposta in alto")
-                                Button { move(horizontal: 0, vertical: -0.01) } label: { Image(systemName: "arrow.down") }.accessibilityLabel("Sposta in basso")
-                            }.disabled(cloneMode).padding(.top, 5)
-                            Text("Passi dell’1% della tela. Puoi anche trascinare la foto o usare le frecce quando l’anteprima ha il focus.").font(.caption).foregroundStyle(.secondary)
-                        }.font(.caption)
-                        Picker("Griglia", selection: $model.gridStyle) {
-                            ForEach(CompositionGrid.allCases) { grid in Text(grid.title).tag(grid) }
-                        }.accessibilityIdentifier("composition-grid")
-                        if model.showGrid {
-                            Slider(value: $model.gridOpacity, in: 0.2...1) { Text("Visibilità griglia") }
-                                .accessibilityLabel("Visibilità griglia")
-                        }
-                        if model.preset.id == "youtube-banner" || model.preset.id.hasSuffix("-profile") {
-                            Toggle("Guide della destinazione", isOn: $model.showDestinationGuides)
-                                .help("Mostra guide indicative del ritaglio. Non vengono esportate.")
-                        }
-                    }.disabled(model.document == nil || model.isLoading)
-                    Divider()
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Timbro clone").font(.headline)
-                        Toggle("Attiva timbro", isOn: $cloneMode).accessibilityIdentifier("clone-mode")
-                        if cloneMode {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(cloneSource == nil ? L10n.text("Fai clic nella foto per scegliere la sorgente.") : L10n.text("Fai clic sull’area da coprire. Tieni premuto Opzione e fai clic per cambiare sorgente."))
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Slider(value: $cloneRadius, in: 0.005...0.15) { Text("Raggio del timbro") }
-                                HStack {
-                                    Text(L10n.format("Raggio: %@%%", (cloneRadius * 100).formatted(.number.precision(.fractionLength(1)))))
-                                    Spacer()
-                                    Button("Cambia sorgente") { cloneSource = nil }
-                                }.font(.caption)
-                                Text("Percentuale del lato corto dell’immagine.").font(.caption2).foregroundStyle(.secondary)
-                                DisclosureGroup("Posizione del timbro") {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Text("Coordinate in percentuale, dall’angolo in basso a sinistra.").font(.caption)
-                                        coordinateFields(title: L10n.text("Destinazione"), point: $cloneTarget)
-                                        Button("Usa destinazione come sorgente") { cloneSource = cloneTarget }
-                                        if let source = cloneSource {
-                                            coordinateFields(title: L10n.text("Sorgente"), point: Binding(get: { source }, set: { cloneSource = $0 }))
-                                        }
-                                        Button("Applica timbro") { applyCloneAtTarget() }.disabled(cloneSource == nil)
-                                    }.padding(.top, 5)
-                                }.font(.caption)
-                            }.transition(disclosureTransition)
-                        }
-                        if !model.edit.cloneStrokes.isEmpty {
-                            Button(L10n.format("Elimina timbri (%d)", model.edit.cloneStrokes.count)) { model.checkpoint(); model.clearCloneStrokes() }
-                        }
-                        Text("Cambiare inquadratura o formato elimina i timbri. Premi ⌘Z per annullare la modifica e recuperarli.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }.disabled(model.document == nil || model.isLoading)
-                }.padding(16)
-                    .animation(interfaceAnimation, value: cloneMode)
-                    .animation(interfaceAnimation, value: model.edit.cloneStrokes.isEmpty)
-            }
-            Divider()
-            exportControls.padding(16)
-        }.background(.regularMaterial)
+    private func resetView() { viewState.resetView(); cropping = false; model.cancelCrop() }
+
+    private var bottomOriginCropRect: CGRect {
+        CGRect(x: cropRect.minX, y: 1 - cropRect.maxY, width: cropRect.width, height: cropRect.height)
     }
 
-    private var exportControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Esportazione").font(.headline)
-            Picker("Formato", selection: $model.png) {
+    private func startCropMode(keeping target: EditState? = nil) {
+        resetView(); cloneMode = false; model.beginCrop(keeping: target)
+        cropRect = CGRect(x: model.cropSelection.minX, y: 1-model.cropSelection.maxY, width: model.cropSelection.width, height: model.cropSelection.height)
+        cropping = true
+    }
+
+    // MARK: - Inspector
+
+    private var inspector: some View {
+        Form {
+            formatSection
+            switch viewState.tool {
+            case .composition: compositionSection
+            case .crop: cropSection
+            case .tools: cloneSection
+            }
+            if viewState.tool != .tools { guidesSection }
+            exportSection
+        }
+        .formStyle(.grouped)
+        .animation(interfaceAnimation, value: cloneMode)
+        .animation(interfaceAnimation, value: model.edit.cloneStrokes.isEmpty)
+    }
+
+    private var formatSection: some View {
+        Section(L10n.text("Formato social")) {
+            LabeledContent(L10n.text("Piattaforma"), value: L10n.text(model.preset.platform.rawValue))
+            LabeledContent(L10n.text("Dimensioni"), value: model.preset.sizeDescription)
+            DisclosureGroup(L10n.text("Fonte del formato"), isExpanded: $showSourceDetails) {
+                Text(model.preset.referenceNote).font(.callout)
+                Text(model.preset.verificationNote).font(.caption).foregroundStyle(.secondary)
+                Link(L10n.text("Specifiche della piattaforma ↗"), destination: model.preset.referenceURL)
+            }
+        }
+    }
+
+    private var straightenAdjustment: some View {
+        PrecisionAdjustment(title: L10n.text("Livella"), value: model.edit.straightenDegrees, range: -45...45, step: 0.1, initial: 0, digits: 1, unit: "°", update: model.setStraighten)
+    }
+
+    @ViewBuilder private var autoLevelControls: some View {
+        Button(model.isAutoLeveling ? L10n.text("Analisi…") : L10n.text("Autolivella"), systemImage: "level", action: model.autoLevel)
+            .disabled(model.isAutoLeveling || model.isLoading)
+            .accessibilityIdentifier("auto-level")
+            .help(L10n.text("Stima l’orizzonte sul Mac. Controlla il risultato; puoi annullare con ⌘Z."))
+        if let message = model.autoLevelMessage {
+            Text(message).font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("auto-level-result")
+        }
+    }
+
+    private var compositionSection: some View {
+        Section(L10n.text("Inquadratura")) {
+            PrecisionAdjustment(title: L10n.text("Zoom"), value: model.edit.zoom, range: 1...8, step: 0.01, initial: 1, digits: 0, unit: "×", update: model.setZoom)
+            straightenAdjustment
+            autoLevelControls
+            DisclosureGroup(L10n.text("Sposta foto")) {
+                HStack {
+                    Button(L10n.text("Sposta a sinistra"), systemImage: "arrow.left") { move(horizontal: -0.01, vertical: 0) }
+                    Button(L10n.text("Sposta a destra"), systemImage: "arrow.right") { move(horizontal: 0.01, vertical: 0) }
+                    Button(L10n.text("Sposta in alto"), systemImage: "arrow.up") { move(horizontal: 0, vertical: 0.01) }
+                    Button(L10n.text("Sposta in basso"), systemImage: "arrow.down") { move(horizontal: 0, vertical: -0.01) }
+                }
+                .labelStyle(.iconOnly)
+                Text("Passi dell’1% della tela. Puoi anche trascinare la foto o usare le frecce quando l’anteprima ha il focus.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Button(L10n.text("Azzera modifiche"), systemImage: "arrow.counterclockwise", action: model.reset)
+                .help(L10n.text("Ripristina l’inquadratura iniziale ed elimina i timbri. Puoi annullare con ⌘Z."))
+        }
+        .disabled(editingDisabled)
+    }
+
+    private var cropSection: some View {
+        Section(L10n.text("Ritaglia")) {
+            straightenAdjustment
+            autoLevelControls
+            HStack {
+                Spacer()
+                Button(L10n.text("Annulla")) { cropping = false; model.cancelCrop(); viewState.tool = .composition }
+                    .keyboardShortcut(.cancelAction)
+                Button(L10n.text("Applica")) {
+                    model.applyCrop(bottomOriginCropRect)
+                    cropping = false; viewState.tool = .composition
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.cropPreview == nil)
+            }
+        }
+        .disabled(editingDisabled)
+    }
+
+    private var guidesSection: some View {
+        Section(L10n.text("Guide")) {
+            Picker(L10n.text("Griglia"), selection: $model.gridStyle) {
+                ForEach(CompositionGrid.allCases) { grid in Text(grid.title).tag(grid) }
+            }
+            .accessibilityIdentifier("composition-grid")
+            if model.showGrid {
+                LabeledContent(L10n.text("Opacità griglia")) {
+                    ResettableSlider(value: $model.gridOpacity, range: 0.2...1, initial: 0.75)
+                        .accessibilityLabel(L10n.text("Opacità griglia"))
+                }
+            }
+            if model.preset.id == "youtube-banner" || model.preset.id.hasSuffix("-profile") {
+                Toggle(L10n.text("Guide della destinazione"), isOn: $model.showDestinationGuides)
+                    .help(L10n.text("Mostra guide indicative del ritaglio. Non vengono esportate."))
+            }
+        }
+        .disabled(editingDisabled)
+    }
+
+    private var cloneSection: some View {
+        Section(L10n.text("Timbro clone")) {
+            Toggle(isOn: $cloneMode) {
+                Label { Text("Strumento clone") } icon: { CloneToolIcon().frame(width: 16, height: 16) }
+            }
+            .help(L10n.text("Strumento clone"))
+            .accessibilityIdentifier("clone-mode")
+            if cloneMode {
+                Text(cloneSource == nil ? L10n.text("Fai clic nella foto per scegliere la sorgente.") : L10n.text("Fai clic sull’area da coprire. Tieni premuto Opzione e fai clic per cambiare sorgente."))
+                    .font(.callout).foregroundStyle(.secondary)
+                LabeledContent(L10n.text("Raggio del timbro")) {
+                    HStack {
+                        ResettableSlider(value: $cloneRadius, range: 0.005...0.15, initial: 0.035)
+                            .accessibilityLabel(L10n.text("Raggio del timbro"))
+                        Text(cloneRadius.formatted(.percent.precision(.fractionLength(1)))).monospacedDigit()
+                    }
+                }
+                Text("Percentuale del lato corto dell’immagine.").font(.caption).foregroundStyle(.secondary)
+                Button(L10n.text("Cambia sorgente")) { cloneSource = nil }
+                    .disabled(cloneSource == nil)
+                DisclosureGroup(L10n.text("Posizione del timbro")) {
+                    Text("Coordinate in percentuale, dall’angolo in basso a sinistra.").font(.caption).foregroundStyle(.secondary)
+                    coordinateFields(title: L10n.text("Destinazione"), point: $cloneTarget)
+                    if let source = cloneSource {
+                        coordinateFields(title: L10n.text("Sorgente"), point: Binding(get: { source }, set: { cloneSource = $0 }))
+                    }
+                    HStack {
+                        Button(L10n.text("Usa destinazione come sorgente")) { cloneSource = cloneTarget }
+                        Button(L10n.text("Applica timbro")) { applyCloneAtTarget() }.disabled(cloneSource == nil)
+                    }
+                }
+            }
+            if !model.edit.cloneStrokes.isEmpty {
+                Button(L10n.format("Elimina timbri (%d)", model.edit.cloneStrokes.count)) { model.checkpoint(); model.clearCloneStrokes() }
+            }
+            Text("Cambiare inquadratura o formato elimina i timbri. Premi ⌘Z per annullare la modifica e recuperarli.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .disabled(editingDisabled)
+    }
+
+    private var exportSection: some View {
+        Section {
+            Picker(L10n.text("Nitidezza schermo"), selection: Binding(get: { model.edit.outputSharpening }, set: model.setSharpening)) {
+                Text("Nessuna").tag(OutputSharpening.none)
+                Text("Bassa").tag(OutputSharpening.low)
+                Text("Standard").tag(OutputSharpening.standard)
+                Text("Alta").tag(OutputSharpening.high)
+            }
+            .disabled(editingDisabled)
+            Picker(L10n.text("Formato file"), selection: $model.png) {
                 Text("JPEG").tag(false)
                 Text("PNG").tag(true)
-            }.pickerStyle(.segmented)
-            if !model.png {
-                HStack { Text("Qualità JPEG"); Spacer(); Text("\(Int(model.jpegQuality * 100))%").monospacedDigit() }.font(.caption)
-                Slider(value: $model.jpegQuality, in: 0.6...1).accessibilityLabel("Qualità JPEG")
             }
-            DisclosureGroup("Dettagli esportazione", isExpanded: $showExportDetails) {
+            .pickerStyle(.segmented)
+            if !model.png {
+                LabeledContent(L10n.text("Qualità JPEG")) {
+                    HStack {
+                        ResettableSlider(value: $model.jpegQuality, range: 0.6...1, initial: 0.95)
+                            .accessibilityLabel(L10n.text("Qualità JPEG"))
+                        Text(model.jpegQuality.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
+                    }
+                }
+            }
+            DisclosureGroup(L10n.text("Dettagli esportazione"), isExpanded: $showExportDetails) {
                 Text("Qualità JPEG iniziale: 95%. Colori sRGB; trasparenza su bianco, anche in PNG. Il JPEG usa compressione con perdita; PNG conserva i pixel del risultato. Ingrandire non aggiunge dettaglio. I social possono ricomprimere i file.")
                     .font(.caption).foregroundStyle(.secondary)
-            }.font(.caption)
-            Button(action: model.export) {
-                Text(model.isExporting ? L10n.text("Esportazione…") : L10n.text("Esporta immagine…")).frame(maxWidth: .infinity)
-            }.buttonStyle(.borderedProminent).disabled(model.document == nil || model.isExporting || model.isLoading)
+            }
+        } header: {
+            Text(L10n.text("Esportazione"))
+        } footer: {
             Text("L’originale resta intatto. La sessione si perde aprendo un’altra immagine o chiudendo l’app.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -474,6 +658,7 @@ struct EditorView: View {
                         point.wrappedValue = updated
                     }), format: .number.precision(.fractionLength(1)))
                     .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
                     .accessibilityLabel(L10n.format("%@, coordinata %@ in percentuale", title, axis))
                 }
             }
@@ -491,17 +676,16 @@ private struct PrecisionAdjustment: View {
     let digits: Int
     let unit: String
     let update: (Double, Bool) -> Bool
-    @State private var isSliding = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(title)
                 Spacer()
-                TextField(title, value: Binding(get: { value }, set: { _ = update($0, true) }), format: .number.precision(.fractionLength(digits)))
-                    .textFieldStyle(.roundedBorder).frame(width: 65).monospacedDigit()
+                TextField(title, value: Binding(get: { unit == "×" ? value * 100 : value }, set: { _ = update(unit == "×" ? $0 / 100 : $0, true) }), format: .number.precision(.fractionLength(digits)))
+                    .textFieldStyle(.roundedBorder).frame(width: 65).monospacedDigit().labelsHidden()
                     .accessibilityLabel(title)
-                Text(unit).foregroundStyle(.secondary)
+                Text(unit == "×" ? "%" : unit).foregroundStyle(.secondary).padding(.trailing, 12)
                 Button { _ = update(initial, true) } label: { Image(systemName: "arrow.counterclockwise") }
                     .help(L10n.format("Reimposta %@", title)).accessibilityLabel(L10n.format("Reimposta %@", title))
                     .disabled(value == initial)
@@ -509,7 +693,7 @@ private struct PrecisionAdjustment: View {
             HStack(spacing: 6) {
                 Button { _ = update(value - step, true) } label: { Image(systemName: "minus") }
                     .accessibilityLabel(L10n.format("Riduci %@", title)).disabled(value <= range.lowerBound)
-                Slider(value: Binding(get: { value }, set: { if update($0, !isSliding) { isSliding = true } }), in: range, onEditingChanged: { if !$0 { isSliding = false } })
+                ResettableSlider(value: Binding(get: { value }, set: { _ = update($0, false) }), range: range, initial: initial, begin: {}, checkpoint: { _ = update($0, true) })
                     .accessibilityLabel(title)
                 Button { _ = update(value + step, true) } label: { Image(systemName: "plus") }
                     .accessibilityLabel(L10n.format("Aumenta %@", title)).disabled(value >= range.upperBound)

@@ -19,6 +19,7 @@ swift test --filter SocialFrameTests.EditorModelTests/testCropUndoRedoAndNewEdit
 
 - `SOCIALFRAME_FIXTURE_OUTPUT=<dir> swift test --filter HorizonScenarioTests` scrive campioni prima/dopo dell'autolivellamento in una cartella a scelta, senza toccare quelli versionati in `output/fixtures/`.
 - Nessun linter configurato. Nessuna dipendenza esterna.
+- `build-app.sh` riscrive con `vtool -set-build-version` la versione SDK nel binario: SwiftPM vi registra il deployment target (`sdk 14.0`) e AppKit disattiverebbe il design di sistema di macOS 26+. Le app avviate da `swift build`/`swift run` non mostrano quindi il vetro di sistema; controllare con `xcrun vtool -show-build .build/SocialFrame.app/Contents/MacOS/SocialFrame`.
 - Nel sandbox di Claude Code, `swift build`/`swift test` falliscono con `sandbox-exec: sandbox_apply: Operation not permitted` (SwiftPM avvia un proprio sandbox per il manifest): vanno eseguiti fuori dal sandbox.
 - La CI (`.github/workflows/ci.yml`) fissa Xcode 27.1 build 27A9275 via `DEVELOPER_DIR` e fallisce se la versione differisce. Cambiare toolchain significa aggiornare insieme workflow e `docs/ci.md`.
 
@@ -39,7 +40,9 @@ Due target SwiftPM: `SocialCore` (libreria, motore immagini senza UI) e `SocialF
 - Risultati asincroni obsoleti si scartano confrontando il contatore `revision` e l'identità del documento (`self.document === document`); `documentGeneration` distingue le riaperture dello stesso URL.
 - L'anteprima (`requestPreview`) è un unico worker che consuma lo stato più recente finché `revision` non si stabilizza (ADR-008). Non introdurre debounce né cancellazione dei frame.
 - Lo stimatore dell'orizzonte è iniettato nell'`init` di `EditorModel`: i test lo sostituiscono per provare concorrenza e undo senza Vision.
-- `EditorView` contiene canvas, gesti, inspector, toolbar e guide della destinazione. `CompositionGrid` è geometria normalizzata di sola presentazione, mai esportata.
+- `EditorView` contiene canvas, gesti, sidebar `List`, inspector `Form`, toolbar e guide della destinazione (shell HIG, ADR-013). `CompositionGrid` è geometria normalizzata di sola presentazione, mai esportata.
+- `EditorViewState` è lo stato di presentazione condiviso tra finestra e menu (strumento attivo, scala/offset della vista, visibilità dell'inspector): posseduto dall'app come `EditorModel`, non entra in `EditState`, cronologia o export. Gli effetti del cambio di strumento stanno negli `onChange` di `EditorView`, così menu e toolbar seguono lo stesso percorso.
+- `EditorCommands` porta nei menu File/Modifica/Vista/Immagine ogni comando della toolbar, con le stesse condizioni di disabilitazione. `EditorControls` raccoglie i controlli AppKit/SwiftUI riusabili: `ResettableSlider` (doppio clic per azzerare), `CanvasPointer`, `CloneToolIcon` e `CropOverlay` (8 maniglie, rettangolo normalizzato con origine in alto a sinistra). `GlassChrome` contiene solo le API macOS 26+, dietro `#available` e `#if compiler(>=6.2)`.
 
 ### Dati legati che vanno aggiornati insieme
 
@@ -48,5 +51,5 @@ Due target SwiftPM: `SocialCore` (libreria, motore immagini senza UI) e `SocialF
 
 ## Documentazione e procedure
 
-- `docs/adr.md` motiva le scelte (ADR-001…010); `docs/requisiti-prodotto.md` definisce i requisiti F-xx; `docs/scenari-test.md` gli scenari T-xx; `docs/verifica.md` registra le verifiche eseguite e i limiti.
-- Le procedure in `.agents/skills/*/SKILL.md` non sono skill di Claude Code (lo Skill tool non le trova): leggere direttamente il file pertinente quando il compito riguarda pipeline immagini, interazione macOS o manutenzione dei preset.
+- `docs/adr.md` motiva le scelte (ADR-001…013); `docs/requisiti-prodotto.md` definisce i requisiti F-xx; `docs/scenari-test.md` gli scenari T-xx; `docs/verifica.md` registra le verifiche eseguite e i limiti.
+- Le procedure di progetto stanno in `.agents/skills/*/SKILL.md`; `.claude/skills` e `.codex/skills` contengono solo symlink verso di esse. Leggere direttamente il file pertinente quando il compito riguarda pipeline immagini, interazione macOS, shell SwiftUI/HIG, audit UI o manutenzione dei preset.

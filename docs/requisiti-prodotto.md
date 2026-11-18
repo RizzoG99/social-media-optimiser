@@ -1,6 +1,6 @@
 # Requisiti prodotto — Social Media Optimiser
 
-**Stato:** baseline iniziale · **Prodotto:** SocialFrame · **Piattaforma:** macOS 14+ · **Lingua UI:** italiano · **Icona scelta:** concept B
+**Stato:** baseline iniziale · **Prodotto:** SocialFrame · **Piattaforma:** macOS 14+ · **Lingue UI:** italiano e inglese · **Icona scelta:** concept B
 
 ## Scopo
 
@@ -53,9 +53,31 @@ La versione **v0.1** non include persistenza del progetto/sessione né elaborazi
 
 Usare componenti e comportamenti standard SwiftUI/macOS: finestra ridimensionabile, scorciatoie per le azioni ricorrenti, supporto a puntatore/trackpad e precisione nel canvas. La sidebar dei preset è appropriata per la navigazione tra gruppi, ma deve potersi nascondere e non ospitare azioni critiche in fondo. Tenere pochi comandi frequenti nella toolbar e lasciare che il sistema gestisca l’overflow. Il nome prodotto è **SocialFrame** e l’icona scelta è il concept **B**. Riferimenti: [HIG macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos), [Sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars), [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars).
 
-Zoom e livellamento offrono input numerico, piccoli incrementi e reset del singolo parametro. Pan e clone hanno controlli equivalenti senza puntatore: frecce sull'anteprima, pulsanti di spostamento e coordinate percentuali per sorgente/destinazione del timbro. Il contorno clone rappresenta il raggio effettivo. Le guide della destinazione sono indipendenti dalla griglia e non vengono esportate. Il comando di esportazione e le impostazioni principali rimangono fuori dall'area scorrevole dell'inspector.
+Zoom e livellamento offrono input numerico, piccoli incrementi e reset del singolo parametro. Pan e clone hanno controlli equivalenti senza puntatore: frecce sull'anteprima, pulsanti di spostamento e coordinate percentuali per sorgente/destinazione del timbro. Il contorno clone rappresenta il raggio effettivo. Le guide della destinazione sono indipendenti dalla griglia e non vengono esportate. Esporta è l'unica azione primaria: pulsante prominente sul lato trailing della toolbar e comando File › Esporta… (⇧⌘E); l'inspector regola solo formato, qualità e nitidezza.
 
-Lingua supportata: italiano. Le risorse di UI e core sono localizzabili; il bundle dichiara le lingue per cui esistono risorse. Le traduzioni aggiuntive non sono incluse. La procedura per aggiungerle è in `localizzazione.md`.
+Lingue incluse: italiano e inglese. Le risorse di UI e core sono localizzabili; il bundle dichiara entrambe le lingue. La procedura per aggiungerne altre è in `localizzazione.md`.
+
+## Migliorie editor — novembre 2026
+
+La shell segue le HIG macOS e “Adopting Liquid Glass” (ADR-013, che sostituisce ADR-012): il vetro arriva solo dai componenti di sistema del livello di navigazione (toolbar unificata, sidebar, inspector) e la foto resta nel livello contenuto, su fondo neutro e senza effetti UI. Nessuna capsula `glassEffect` disegnata a mano, nessuno sfondo condiviso nascosto e nessuno stile `.glass` sui comandi della toolbar. Su macOS 14/15 gli stessi container usano i materiali di sistema; le API macOS 26+ sono isolate in `GlassChrome.swift` dietro `#available` e `#if compiler(>=6.2)`.
+
+- **Finestra:** il titolo è il nome del file aperto (“Nessuna foto” senza documento); il sottotitolo riporta formato e pixel esportati (per esempio “Post verticale · 1080 × 1350”); la piattaforma è nell’intestazione della sezione in sidebar e nell’inspector. Nessuna intestazione duplicata nel canvas.
+- **Toolbar:** a sinistra pulsante sidebar, titolo e sottotitolo di sistema; al centro il selettore segmentato Inquadratura/Ritaglia/Strumenti; a destra Ruota 90° e il pulsante dell’inspector in un gruppo, poi, dopo lo spaziatore fisso di sistema, Esporta prominente da solo sul bordo trailing. Simboli di sistema senza bordo e nomi accessibili distinti.
+- **Menu:** ogni comando della toolbar è anche nella barra dei menu. File: Apri (⌘O), Esporta (⇧⌘E). Modifica: Annulla modifica/Ripristina (⌘Z/⇧⌘Z). Vista: Adatta alla finestra (⌘9), Dimensioni reali (⌘0), Ingrandisci (⌘+), Riduci (⌘−), Sfondo, Griglia, barra laterale e inspector. Immagine: strumenti (⌘1–⌘3), Ruota 90° (⌘L), Autolivella, Azzera modifiche.
+- **Sidebar:** `List` con selezione persistente, piattaforme come sezioni richiudibili e preset come `Label` con il simbolo del rapporto d’aspetto.
+- **Inspector:** `Form` raggruppato con sezioni Formato social, strumento attivo, Guide ed Esportazione; ogni controllo ha un’etichetta, i pulsanti hanno stile standard e larghezza naturale.
+- **Barra di stato:** solo testo breve (esito dell’operazione, scala della vista, sRGB), nessun controllo.
+- Gruppi social espandibili indipendenti; all’avvio è aperto solo il gruppo del formato selezionato, perché la selezione resti visibile. Chiudere un gruppo conserva il formato selezionato.
+- Sfondo del canvas bianco, grigio (iniziale) o nero, selezionabile dal menu Vista › Sfondo. Scelta conservata nelle preferenze e mai esportata.
+- Ritaglio con otto maniglie, rapporto del preset fisso, selezione provvisoria e Applica/Annulla (Invio/Esc). Il contesto mostra un’inquadratura più ampia quando possibile, entro il riempimento senza bordi vuoti; le modifiche geometriche restano annullabili e invalidano i timbri soltanto all’applicazione.
+- Doppio clic foto: Adatta/100% dei pixel esportati, distinto dallo zoom di composizione. Spazio+trascinamento sposta la vista al 100%; il normale trascinamento sposta l’inquadratura.
+- Adatta alla finestra, Dimensioni reali, Ingrandisci e Riduci sono comandi del menu Vista con scorciatoia; la barra di stato mostra solo la scala corrente. L’ingresso in Ritaglia è nel selettore dello strumento in toolbar e nel menu Immagine.
+- Doppio clic slider: reset individuale. Zoom 100%, livellamento 0°, opacità griglia 75%, raggio clone 3,5%, JPEG 95%. Restano i pulsanti di reset per i parametri geometrici.
+- Il selettore segmentato al centro della toolbar sceglie Inquadratura, Ritaglia e Strumenti, con inspector contestuale; frecce da tastiera e VoiceOver sono quelli del controllo di sistema. Applica/Annulla (Invio/Esc) rimangono espliciti e tornano a Inquadratura. Cambiare scheda scarta la selezione di crop provvisoria e disattiva il clone uscendo da Strumenti, senza eliminare timbri applicati.
+- La scala della vista non modifica composizione o export; va da 10% a 400% dei pixel finali a passi fissi (10, 25, 50, 75, 100, 150, 200, 300, 400%). Durante il crop la vista resta adattata e i comandi di scala sono disattivati.
+- Ruota 90° usa l’icona di sistema `rotate.left` nella toolbar a destra e il comando Immagine › Ruota 90° (⌘L). La rotazione resta antioraria e annullabile.
+- Strumento clone con icona vettoriale originale e interruttore di sistema nella sezione Timbro clone dell’inspector. Campionamento e timbri discreti invariati; disattivare lo strumento conserva i timbri.
+- Nitidezza schermo Nessuna (iniziale), Bassa, Standard, Alta; parametro annullabile che conserva i timbri, applicato anche in PNG. Nessuna promessa di equivalenza con algoritmi Adobe o di assenza di ricompressione social.
 
 
 ## Animazioni

@@ -10,6 +10,13 @@ final class EditorModel: ObservableObject {
     @Published var preset = Preset.all[0] { didSet { requestPreview() } }
     @Published var edit = EditState() { didSet { requestPreview() } }
     @Published var preview: NSImage?
+    @Published private(set) var cropPreview: NSImage?
+    @Published private(set) var cropSelection = CGRect(x: 0, y: 0, width: 1, height: 1)
+    private var cropBase: EditState?
+    private var cropRevision = 0
+    var minimumCropSide: CGFloat { minimumSide(for: cropBase ?? edit) }
+    private func minimumSide(for base: EditState) -> CGFloat { CGFloat(base.zoom / 8) }
+    @Published var fullResolutionPreview = false { didSet { if oldValue != fullResolutionPreview { requestPreview() } } }
     @Published var errorMessage: String?
     @Published var status = L10n.text("Tutto sul tuo Mac. I tuoi originali restano intatti.")
     @Published var isLoading = false
@@ -18,7 +25,7 @@ final class EditorModel: ObservableObject {
     @Published var png = false
     @Published var jpegQuality = 0.95
     @Published var gridStyle: CompositionGrid = .thirds
-    @Published var gridOpacity = 0.55
+    @Published var gridOpacity = 0.75
     @Published var showDestinationGuides = true
     @Published var showReplacementConfirmation = false
     @Published private(set) var pendingImageURL: URL?
@@ -50,7 +57,7 @@ final class EditorModel: ObservableObject {
     var canRedo: Bool { !isLoading && !redoStack.isEmpty }
     var imageDescription: String {
         guard let document else { return L10n.text("Nessuna immagine") }
-        return L10n.format("%d × %d px", document.pixelWidth, document.pixelHeight)
+        return "\(document.pixelWidth) × \(document.pixelHeight) px"
     }
 
     func chooseImage() {
@@ -159,6 +166,62 @@ final class EditorModel: ObservableObject {
         clearCloneStrokes()
         preset = newPreset
     }
+    /// L'inquadratura che la selezione `rect` (origine in basso a sinistra) produrrebbe
+    /// applicando il ritaglio in corso; `nil` fuori dal ritaglio.
+    func cropTarget(for rect: CGRect) -> EditState? {
+        guard let document, let base = cropBase else { return nil }
+        return try? renderer.cropped(document: document, preset: preset, edit: base, rect: rect)
+    }
+
+    /// Avvia il ritaglio sull'inquadratura corrente. Con `keeping` la selezione iniziale
+    /// riproduce quell'inquadratura (per esempio quella trascinata prima di cambiare
+    /// Livella) con la rotazione attuale, se entra nel nuovo contesto.
+    func beginCrop(keeping target: EditState? = nil) {
+        guard let document, !isLoading else { return }
+        cropRevision += 1
+        let token = cropRevision, generation = documentGeneration, original = edit, preset = preset
+        guard let context = try? renderer.cropContext(document: document, preset: preset, edit: edit) else { return }
+        var selection = context.selection
+        if var target {
+            target.straightenDegrees = edit.straightenDegrees
+            target.quarterTurns = edit.quarterTurns
+            // Il limite del pan con la nuova rotazione può spingere l'inquadratura fuori dal
+            // contesto di una frazione: entro lo 0,5% la selezione si sposta dentro.
+            let slack = 0.005
+            if let clamped = try? renderer.panned(document: document, preset: preset, edit: target, translationX: 0, translationY: 0) {
+                let r = renderer.selection(document: document, preset: preset, of: clamped, in: context.edit)
+                if r.width <= 1, r.width >= minimumSide(for: context.edit),
+                   r.minX >= -slack, r.minY >= -slack, r.maxX <= 1 + slack, r.maxY <= 1 + slack {
+                    selection = CGRect(x: min(max(0, r.minX), 1 - r.width), y: min(max(0, r.minY), 1 - r.height),
+                                       width: r.width, height: r.height)
+                }
+            }
+        }
+        cropBase = context.edit; cropPreview = nil; cropSelection = selection
+        let renderer = renderer
+        Task {
+            do {
+                let image = try await Task.detached(priority: .userInitiated) {
+                    try renderer.render(document: document, preset: preset, edit: context.edit, maxPixelSize: 1400)
+                }.value
+                guard token == cropRevision, generation == documentGeneration, original == edit, preset == self.preset else { return }
+                cropPreview = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+            } catch { if token == cropRevision { errorMessage = error.localizedDescription } }
+        }
+    }
+    func cancelCrop() { cropRevision += 1; cropBase = nil; cropPreview = nil }
+    func applyCrop(_ rect: CGRect) {
+        guard let document, let base = cropBase, let result = try? renderer.cropped(document: document, preset: preset, edit: base, rect: rect) else { return }
+        if abs(result.zoom - edit.zoom) < 1e-9, abs(result.panX - edit.panX) < 1e-9, abs(result.panY - edit.panY) < 1e-9 { cancelCrop(); return }
+        _ = applyGeometry(result)
+        cancelCrop()
+    }
+
+    func setSharpening(_ value: OutputSharpening) {
+        guard !isLoading, value != edit.outputSharpening else { return }
+        checkpoint(); edit.outputSharpening = value
+    }
+
     func reset() { guard !isLoading else { return }; checkpoint(); edit = EditState() }
     func rotate() { guard !isLoading else { return }; checkpoint(); clearCloneStrokes(); edit.quarterTurns = (edit.quarterTurns + 1) % 4 }
 
@@ -261,9 +324,10 @@ final class EditorModel: ObservableObject {
             while let document = self.document {
                 let requestedRevision = revision
                 let preset = self.preset, edit = self.edit, renderer = renderer
+                let maxPixelSize: Int? = fullResolutionPreview ? nil : 1400
                 do {
                     let image = try await Task.detached(priority: .userInitiated) {
-                        try renderer.render(document: document, preset: preset, edit: edit, maxPixelSize: 1400)
+                        try renderer.render(document: document, preset: preset, edit: edit, maxPixelSize: maxPixelSize)
                     }.value
                     // Intermediate edits are useful during a continuous gesture;
                     // a frame from a different document or preset is never shown.
@@ -316,7 +380,7 @@ final class EditorModel: ObservableObject {
                 if self.document === document {
                     preservedSnapshot = Snapshot(edit: edit, preset: preset)
                 }
-                status = L10n.format("Esportato %@ · %d × %d px", url.lastPathComponent, preset.width, preset.height)
+                status = L10n.format("Esportato %@ · %@", url.lastPathComponent, preset.sizeDescription)
                 isExporting = false
                 afterSuccess?()
             } catch { errorMessage = error.localizedDescription }

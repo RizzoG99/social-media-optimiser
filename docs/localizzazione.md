@@ -1,6 +1,6 @@
 # Localizzazione
 
-L'app supporta attualmente **italiano**, anche per menu e dialoghi AppKit. La lingua di sviluppo è `it`; non sono incluse traduzioni aggiuntive.
+L'app include risorse complete in **italiano e inglese**, anche per menu e dialoghi AppKit. La lingua di sviluppo e fallback è `it`; macOS sceglie la lingua dalle preferenze dell’utente. Non è previsto un selettore interno. I numeri seguono la locale di sistema anche quando la lingua dell’app è inglese.
 
 - `Sources/SocialFrame/Resources/it.lproj/Localizable.strings`: etichette SwiftUI, nomi dei formati, messaggi dinamici, aiuti e accessibilità.
 - `Sources/SocialCore/Resources/it.lproj/Localizable.strings`: descrizioni degli errori, senza dipendenza dalla UI.

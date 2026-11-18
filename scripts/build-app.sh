@@ -6,6 +6,13 @@ APP="$PWD/.build/SocialFrame.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 BIN_DIR="$(swift build -c release --show-bin-path)"
 cp "$BIN_DIR/SocialFrame" "$APP/Contents/MacOS/SocialFrame"
+# SwiftPM can record the deployment target as the SDK version (sdk 14.0). AppKit
+# then treats the app as linked before macOS 26 and disables the system Liquid
+# Glass design. Record the SDK actually used, keeping the minimum system version.
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+MIN_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' Resources/Info.plist)"
+xcrun vtool -set-build-version macos "$MIN_VERSION" "$SDK_VERSION" -replace \
+    -output "$APP/Contents/MacOS/SocialFrame" "$APP/Contents/MacOS/SocialFrame"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # SwiftPM resource accessors look beside the executable/main bundle on macOS.
