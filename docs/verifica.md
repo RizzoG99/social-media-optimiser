@@ -1,5 +1,16 @@
 # Verifica della versione 0.1
 
+## Set di foto e pellicola (ADR-014) — 18 novembre 2026
+
+Implementati F-11…F-13: `PhotoItem`/`ExportPlan`/`PhotoImport` in `Sources/SocialFrame/PhotoSet.swift`, pellicola in `Filmstrip.swift`, set e Esporta tutto in `EditorModel`, comandi in `EditorCommands`, avviso d'uscita in `SocialFrameApp`. Requisiti e analisi in `docs/analisi-set-foto.md`.
+
+### Limiti di questa verifica
+
+- **Non compilato né eseguito.** Il codice è stato scritto in un container Linux senza toolchain Swift né SDK macOS: `swift test --enable-code-coverage` e `./scripts/build-app.sh` **non sono stati eseguiti**. Vanno lanciati su macOS prima del merge; eventuali errori di compilazione o test falliti sono attesi da correggere in quella fase.
+- Nuovi test model in `Tests/SocialFrameTests/PhotoSetModelTests.swift` (import multiplo, cartella non ricorsiva, duplicati via symlink, Aggiungi/Sostituisci con file illeggibili, conservazione per foto di modifiche/preset/cronologia, selezione rapida, navigazione ai bordi, badge, rimozione, pianificazione nomi, Esporta tutto con conflitti e protezione degli originali). Sono test del model, non XCUITest. Adattati tre test esistenti (`EditorModelTests`, `UXRegressionTests`) al nuovo flusso: con un set aperto, `open` chiede Aggiungi/Sostituisci invece di sostituire.
+- Nessun collaudo dell'app reale (scenari T-17…T-27, `macos-interaction-validation`), nessuna prova visiva della pellicola in tema chiaro/scuro, VoiceOver, Riduci movimento o finestra minima: voci aperte del quality gate di `macos-swiftui-pro`.
+- Limite noto: aprire più file dal Finder con "Apri con" invia un URL alla volta; dal secondo file compare la domanda Aggiungi/Sostituisci.
+
 ## Shell HIG (ADR-013) — 12 novembre 2026
 
 Shell riscritta secondo la skill `macos-swiftui-pro`: titolo = nome del file, preset nel sottotitolo, toolbar di sistema (selettore segmentato; Ruota 90° e inspector; spaziatore fisso; Esporta prominente), sidebar `List` con `Section(isExpanded:)` e simboli del rapporto, inspector `Form` raggruppato, comandi vista e strumenti nei menu Vista e Immagine, barra di stato solo testuale. Le voci successive sulla shell (da "Liquid Glass" a "Controlli vista nella barra inferiore") sono resoconti storici della shell superata.

@@ -4,7 +4,7 @@
 
 ## Scopo
 
-App nativa offline per preparare una singola immagine sorgente in copie esportate adatte a formati social comuni. Il prodotto semplifica dimensionamento e composizione; non pubblica contenuti e non può garantire che una piattaforma accetti un file, lo mostri identico o non lo ricomprima.
+App nativa offline per preparare una o più immagini sorgente in copie esportate adatte a formati social comuni. Il prodotto semplifica dimensionamento e composizione; non pubblica contenuti e non può garantire che una piattaforma accetti un file, lo mostri identico o non lo ricomprima.
 
 ## Utenti e flusso
 
@@ -20,6 +20,9 @@ Creator o operatore seleziona un’immagine, sceglie una piattaforma e un format
 - **F-05 Geometria coerente:** applicare il clone alla variante normalizzata risultante dal crop corrente. Un cambiamento di geometria del crop (rapporto/dimensioni, pan, zoom, rotazione o raddrizzamento) cancella sorgente e timbri clone. Una nota persistente informa l’utente di questa regola prima di modificare la geometria; non è richiesto un dialogo di conferma. Undo ripristina anche preset/geometria e timbri cancellati. La sola modifica dei parametri non geometrici non invalida il clone.
 - **F-06 Esportazione:** renderizzare una copia alle dimensioni esatte del preset, JPEG o PNG, profilo sRGB; appiattire sempre il risultato su fondo bianco, anche per PNG. JPEG espone qualità selezionabile con valore predefinito documentato nell’interfaccia. Impedire la sovrascrittura del sorgente, anche tramite collegamenti simbolici o hard link.
 - **F-07 Preview:** mostrare la tela e l’area che sarà esportata. Per profili e banner, indicare overlay/zone di sicurezza quando la piattaforma li documenta; sono guide, non anteprime fedeli di ogni dispositivo.
+- **F-11 Set di foto:** importare più foto con selezione multipla nel pannello Apri, una cartella (solo immagini al primo livello) o il trascinamento di più file. Con un set aperto chiedere Aggiungi al set / Sostituisci il set / Annulla; sostituire foto con modifiche non esportate richiede conferma e il set precedente resta intatto se nessun file nuovo si apre. Un file già presente (stesso percorso risolto) non si aggiunge di nuovo; nessun limite numerico; file illeggibili saltati con riepilogo. Ogni foto conserva modifiche, preset e cronologia; le nuove partono dal preset selezionato. Il set vive solo in memoria e l’uscita con foto non esportate chiede conferma.
+- **F-12 Pellicola:** striscia in basso con miniature del risultato modificato, selezione evidenziata e badge “modificata, non esportata” / “esportata”. Rimuovi dal set (Canc, menu contestuale, menu Immagine) con conferma se ci sono modifiche non esportate; il file su disco non si tocca. ⌘← / ⌘→ foto precedente/successiva, frecce quando la pellicola ha il focus; Vista › Mostra/Nascondi pellicola, scelta conservata nelle preferenze.
+- **F-13 Esporta tutto:** File › Esporta tutto… (⌥⇧⌘E) esporta ogni foto del set in una cartella con il proprio preset e le proprie modifiche, nel formato e nella qualità correnti dell’inspector, come `<nome>-<preset>.<estensione>`. Con file omonimi già presenti una sola domanda: Sostituisci o Mantieni entrambi (suffisso numerico). Gli originali del set non vengono mai sostituiti. Avanzamento in barra di stato ed errori riepilogati.
 - **F-08 Privacy/offline:** elaborazione locale senza account, telemetria o rete necessaria. Le foto restano nelle posizioni scelte dall’utente.
 
 ## Limiti immagini
@@ -31,7 +34,7 @@ Creator o operatore seleziona un’immagine, sceglie una piattaforma e un format
 
 ## Fuori dal perimetro della versione iniziale
 
-La versione **v0.1** non include persistenza del progetto/sessione né elaborazione batch. Non include pubblicazione diretta, video, generazione AI, filtri creativi o ritocco colore avanzato. Il clone è uno strumento manuale applicato esclusivamente a varianti di foto fornite dall’utente.
+La versione **v0.1** non include persistenza del progetto/sessione. L’unica elaborazione in blocco è Esporta tutto (F-13, ADR-014). Non include pubblicazione diretta, video, generazione AI, filtri creativi o ritocco colore avanzato. Il clone è uno strumento manuale applicato esclusivamente a varianti di foto fornite dall’utente.
 
 ## Vincoli e criteri di accettazione
 

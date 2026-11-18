@@ -52,3 +52,20 @@ Questa matrice comprende scenari automatici e manuali. Lo stato di esecuzione è
 - Modifica manuale durante l’analisi: il risultato precedente non sovrascrive la nuova inquadratura.
 - Passaggio tra griglie: verificare linee e visibilità con foto verticali/orizzontali; nessuna modifica allo stato di editing. L’export non deve includere guide.
 - Verificare fotografie reali con orizzonti inclinati nei due versi, un angolo manuale già presente e una rotazione di 90°: l’analisi Vision dipende dal contenuto e non è sostituibile dai soli test sulla conversione degli angoli.
+
+## Set di foto e pellicola (F-11…F-13, ADR-014)
+
+| ID | Scenario | Risultato atteso |
+|---|---|---|
+| T-17 | Aprire 5 foto con selezione multipla, poi una cartella con sottocartelle e file non immagine | Tutte in pellicola con miniatura, ordine del Finder, solo primo livello; la prima foto nuova è attiva. |
+| T-18 | Aggiungere file già presenti, anche tramite symlink | Nessun doppione; messaggio se nessuna foto nuova. |
+| T-19 | Modificare foto 1 (preset, rotazione, timbri), passare alla 3 e tornare | Modifiche, preset e annulla/ripristina della foto 1 intatti; la foto 3 ha cronologia propria. |
+| T-20 | Selezionare rapidamente più foto | Si apre solo l’ultima richiesta; nessuna modifica durante l’apertura. |
+| T-21 | Aggiungi vs Sostituisci, con e senza modifiche non esportate; sostituzione con soli file illeggibili | Sostituisci chiede conferma solo con modifiche non esportate; un import fallito conserva set, foto e cronologia. |
+| T-22 | Badge dopo modifica, export singolo, nuova modifica e annulla | Modificata → esportata → modificata → esportata. |
+| T-23 | Rimuovere la foto selezionata, una non selezionata e l’ultima | Conferma solo con modifiche non esportate; si seleziona la vicina; con l’ultima l’editor torna vuoto; file su disco invariati. |
+| T-24 | ⌘← / ⌘→ ai bordi, frecce con focus nella pellicola, Vista › Nascondi pellicola | Navigazione ferma ai bordi; frecce sul canvas continuano a spostare l’inquadratura. |
+| T-25 | Esporta tutto in una cartella con un file omonimo; ripetere con Sostituisci | Una sola domanda; Mantieni entrambi aggiunge `-2`; ogni file ha le dimensioni del preset della sua foto; badge “esportata”. |
+| T-26 | Esporta tutto nella cartella degli originali con un nome che coincide con un originale del set | L’originale resta intatto; la copia riceve un suffisso. |
+| T-27 | Uscire con foto modificate e non esportate | Avviso con Esci/Annulla; senza modifiche non esportate l’app esce subito. |
+
