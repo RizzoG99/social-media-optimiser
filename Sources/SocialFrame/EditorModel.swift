@@ -34,13 +34,20 @@ final class EditorModel: ObservableObject {
     @Published private(set) var isAutoLeveling = false
     @Published private(set) var autoLevelMessage: String?
     private let estimateLevel: (ImageDocument, Preset, EditState) async throws -> AutoLevelSuggestion?
+    /// Lettura del file, eseguita fuori dal MainActor. Iniettata perché i test contino le decodifiche.
+    private let loadDocument: @Sendable (URL) throws -> ImageDocument
 
     init(estimateLevel: @escaping (ImageDocument, Preset, EditState) async throws -> AutoLevelSuggestion? = { document, preset, edit in
         try await Task.detached(priority: .userInitiated) {
             try AutoLevelEstimator().estimate(document: document, preset: preset, edit: edit)
         }.value
+    }, loadDocument: @escaping @Sendable (URL) throws -> ImageDocument = { url in
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        return try ImageDocument(url: url)
     }) {
         self.estimateLevel = estimateLevel
+        self.loadDocument = loadDocument
     }
     private struct Snapshot: Equatable { let edit: EditState; let preset: Preset }
     @Published private var undoStack: [Snapshot] = []
@@ -51,6 +58,7 @@ final class EditorModel: ObservableObject {
     }
     private var previewTask: Task<Void, Never>?
     private var importTask: Task<Void, Never>?
+    private var pendingLoadURL: URL?
     private var revision = 0
     private let renderer = ImageRenderer()
     var canUndo: Bool { !isLoading && !undoStack.isEmpty }
@@ -111,36 +119,46 @@ final class EditorModel: ObservableObject {
         }
     }
 
+    /// Come l'anteprima (ADR-008), un unico worker decodifica l'ultima richiesta: una raffica
+    /// di aperture (più file dal Finder) non avvia una decodifica per file. `Task.cancel()`
+    /// non fermerebbe la decodifica già partita in un `Task.detached`.
     private func loadImage(_ url: URL) {
-        importTask?.cancel()
         revision += 1
         autoLevelMessage = nil
         isLoading = true
         status = L10n.format("Apertura di %@…", url.lastPathComponent)
+        pendingLoadURL = url
+        guard importTask == nil else { return }
         importTask = Task {
-            do {
-                let loaded = try await Task.detached(priority: .userInitiated) {
-                    let access = url.startAccessingSecurityScopedResource()
-                    defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    return try ImageDocument(url: url)
-                }.value
-                guard !Task.isCancelled else { return }
-                document = loaded
-                documentGeneration += 1
-                sourceURL = url
-                undoStack = []; redoStack = []
-                edit = EditState()
-                preservedSnapshot = Snapshot(edit: edit, preset: preset)
-                preview = nil
-                isLoading = false
-                status = L10n.format("Originale caricato · %@", imageDescription)
-                requestPreview()
-            } catch {
-                guard !Task.isCancelled else { return }
-                isLoading = false
-                errorMessage = error.localizedDescription
-                status = L10n.text("Impossibile aprire l’immagine.")
+            defer { importTask = nil }
+            while let url = pendingLoadURL {
+                pendingLoadURL = nil
+                await finishLoading(url)
             }
+        }
+    }
+
+    private func finishLoading(_ url: URL) async {
+        let loadDocument = loadDocument
+        do {
+            let loaded = try await Task.detached(priority: .userInitiated) { try loadDocument(url) }.value
+            // Una richiesta più recente è in coda: questo risultato è già obsoleto.
+            guard pendingLoadURL == nil else { return }
+            document = loaded
+            documentGeneration += 1
+            sourceURL = url
+            undoStack = []; redoStack = []
+            edit = EditState()
+            preservedSnapshot = Snapshot(edit: edit, preset: preset)
+            preview = nil
+            isLoading = false
+            status = L10n.format("Originale caricato · %@", imageDescription)
+            requestPreview()
+        } catch {
+            guard pendingLoadURL == nil else { return }
+            isLoading = false
+            errorMessage = error.localizedDescription
+            status = L10n.text("Impossibile aprire l’immagine.")
         }
     }
 
