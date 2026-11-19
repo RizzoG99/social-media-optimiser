@@ -21,7 +21,10 @@ final class EditorModel: ObservableObject {
     @Published var status = L10n.text("Tutto sul tuo Mac. I tuoi originali restano intatti.")
     @Published var isLoading = false
     @Published var isExporting = false
-    @Published var isRendering = false
+    /// Non pubblicato: cambia a ogni fotogramma e l'interfaccia non deve ridisegnarsi per questo.
+    private(set) var isRendering = false
+    /// Pubblicato solo per i rendering lenti (oltre 200 ms), per l'indicatore nella barra di stato.
+    @Published private(set) var showsRenderProgress = false
     @Published var png = false
     @Published var jpegQuality = 0.95
     @Published var gridStyle: CompositionGrid = .thirds
@@ -220,7 +223,7 @@ final class EditorModel: ObservableObject {
         Task {
             do {
                 let image = try await Task.detached(priority: .userInitiated) {
-                    try renderer.render(document: document, preset: preset, edit: context.edit, maxPixelSize: 1400)
+                    try renderer.render(document: document, preset: preset, edit: context.edit, maxPixelSize: 1400, allowProxy: true)
                 }.value
                 guard token == cropRevision, generation == documentGeneration, original == edit, preset == self.preset else { return }
                 cropPreview = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
@@ -337,15 +340,24 @@ final class EditorModel: ObservableObject {
         // useful frame because the next slider event arrived while rendering.
         guard document != nil, previewTask == nil else { return }
         isRendering = true
+        // Durante un trascinamento il worker parte e finisce a ogni evento: l'indicatore
+        // compare solo se il rendering dura davvero, senza ritardare i fotogrammi.
+        let progress = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            if !Task.isCancelled, isRendering, !showsRenderProgress { showsRenderProgress = true }
+        }
         previewTask = Task {
-            defer { previewTask = nil; isRendering = false }
+            defer {
+                previewTask = nil; isRendering = false; progress.cancel()
+                if showsRenderProgress { showsRenderProgress = false }
+            }
             while let document = self.document {
                 let requestedRevision = revision
                 let preset = self.preset, edit = self.edit, renderer = renderer
                 let maxPixelSize: Int? = fullResolutionPreview ? nil : 1400
                 do {
                     let image = try await Task.detached(priority: .userInitiated) {
-                        try renderer.render(document: document, preset: preset, edit: edit, maxPixelSize: maxPixelSize)
+                        try renderer.render(document: document, preset: preset, edit: edit, maxPixelSize: maxPixelSize, allowProxy: true)
                     }.value
                     // Intermediate edits are useful during a continuous gesture;
                     // a frame from a different document or preset is never shown.

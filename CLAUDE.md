@@ -29,7 +29,7 @@ Due target SwiftPM: `SocialCore` (libreria, motore immagini senza UI) e `SocialF
 
 ### Motore (`Sources/SocialCore`)
 
-- `ImageDocument` (`ImagePipeline.swift`) controlla peso del file, megapixel e lato massimo **prima** del decode, poi applica l'orientamento EXIF una sola volta nel `CIImage` interno. Tutto il resto lavora sull'immagine già orientata.
+- `ImageDocument` (`ImagePipeline.swift`) controlla peso del file, megapixel e lato massimo **prima** del decode, poi applica l'orientamento EXIF una sola volta nel `CIImage` interno. Tutto il resto lavora sull'immagine già orientata. I RAW vengono sviluppati una volta all'import; oltre 3072 px si prepara anche un proxy con la stessa estensione dell'originale, usato dall'anteprima solo quando basta alla densità richiesta (`render(..., allowProxy:)`, ADR-014). L'export non lo usa mai.
 - `ImageRenderer.render(document:preset:edit:maxPixelSize:)` è l'unico percorso geometrico: l'anteprima lo chiama con `maxPixelSize: 1400`, l'export a piena risoluzione. Scala minima di riempimento, rotazione (quarti + raddrizzamento, antiorari), clamp del pan e timbri clone sono calcolati qui. `panned(...)` converte uno spostamento in coordinate schermo nel pan in coordinate sorgente con gli stessi limiti. Le due funzioni duplicano la matematica di scala/limiti: modificarle insieme.
 - `EditState` è l'intera modifica non distruttiva (pan, zoom, raddrizzamento, quarti di giro, `cloneStrokes`). `Preset.all` è il catalogo delle dimensioni.
 - `AutoLevelEstimator` (`AutoLevel.swift`) esegue `VNDetectHorizonRequest` su un render ridotto senza timbri; `HorizonRefinement` corregge il residuo su un bordo dominante. Soglie e motivazioni in ADR-009.
@@ -51,5 +51,5 @@ Due target SwiftPM: `SocialCore` (libreria, motore immagini senza UI) e `SocialF
 
 ## Documentazione e procedure
 
-- `docs/adr.md` motiva le scelte (ADR-001…013); `docs/requisiti-prodotto.md` definisce i requisiti F-xx; `docs/scenari-test.md` gli scenari T-xx; `docs/verifica.md` registra le verifiche eseguite e i limiti.
+- `docs/adr.md` motiva le scelte (ADR-001…014); `docs/requisiti-prodotto.md` definisce i requisiti F-xx; `docs/scenari-test.md` gli scenari T-xx; `docs/verifica.md` registra le verifiche eseguite e i limiti.
 - Le procedure di progetto stanno in `.agents/skills/*/SKILL.md`; `.claude/skills` e `.codex/skills` contengono solo symlink verso di esse. Leggere direttamente il file pertinente quando il compito riguarda pipeline immagini, interazione macOS, shell SwiftUI/HIG, audit UI o manutenzione dei preset.

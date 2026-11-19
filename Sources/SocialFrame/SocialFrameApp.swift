@@ -3,8 +3,15 @@ import AppKit
 
 @main
 struct SocialFrameApp: App {
-    @StateObject private var model = EditorModel()
+    @StateObject private var model: EditorModel
+    @StateObject private var menu: EditorMenuState
     @StateObject private var viewState = EditorViewState()
+
+    init() {
+        let model = EditorModel()
+        _model = StateObject(wrappedValue: model)
+        _menu = StateObject(wrappedValue: EditorMenuState(model: model))
+    }
     var body: some Scene {
         // Una sola finestra: il modello è unico. Con `WindowGroup` ogni file aperto dal
         // Finder (o trascinato sull'icona nel Dock) creava una nuova finestra sullo stesso
@@ -19,6 +26,6 @@ struct SocialFrameApp: App {
         .defaultSize(width: 1280, height: 820)
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
-        .commands { EditorCommands(model: model, viewState: viewState) }
+        .commands { EditorCommands(model: model, menu: menu, viewState: viewState) }
     }
 }
