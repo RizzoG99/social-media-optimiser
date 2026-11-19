@@ -1,12 +1,29 @@
 # Decisioni architetturali (ADR)
 
-## ADR-014 — Proxy di anteprima e RAW sviluppato una volta
+## ADR-015 — Proxy di anteprima e RAW sviluppato una volta
 
 Un RAW letto da ImageIO veniva sviluppato di nuovo a ogni rendering: circa 760 ms per fotogramma su un RAF Fujifilm da 26 MP, con un trascinamento a circa 8 fotogrammi su 120 eventi. `ImageDocument` ora sviluppa il RAW una sola volta all'import, in una bitmap Display P3 a 8 bit e piena risoluzione (circa 1,1 s e 100 MB per 26 MP, fuori dal MainActor). Anteprima ed export usano gli stessi pixel sviluppati, con le impostazioni RAW predefinite di ImageIO. Misura su due RAF esportati in PNG 1080×1350 (zoom 1 e 2,5): rispetto a uno sviluppo a 16 bit, la bitmap P3 a 8 bit differisce in media di 0,09–0,19 livelli (massimo 2); una bitmap sRGB a 8 bit taglierebbe i colori fuori gamut (fino a 37 livelli). Rispetto all'export precedente la differenza media è 0,5–1,2 livelli, con picchi locali fino a circa 100 sui dettagli fini: il percorso precedente sviluppava il RAW a risoluzione ridotta per le uscite piccole, quello nuovo a piena risoluzione e poi riduce. Il confronto visivo del blocco più diverso mostra stessi colori, nessuna posterizzazione e dettagli leggermente più nitidi. `kCGImageSourceShouldCacheImmediately` è stato misurato e non basta (circa 500 ms per fotogramma).
 
 Per le foto con lato lungo oltre 3072 px l'import prepara anche un proxy: copia ridotta con Lanczos a 3072 px, riportata all'estensione dell'originale. `render`, `panned` e ritaglio restano un unico percorso geometrico; cambia solo la densità dei pixel. L'anteprima (`allowProxy`) usa il proxy solo se ha almeno i pixel per pixel sorgente che il fotogramma richiede, altrimenti torna all'originale: con i preset attuali il proxy serve fino a circa 1,8× di zoom. Anche Vista 100% segue la stessa regola: il proxy compare solo se ha almeno un pixel per pixel di output. Export e autolivellamento non lo usano mai, quindi il file esportato non cambia. Il proxy costa circa 25 MB e 0,1–0,25 s all'import.
 
 Per i JPG il proxy non accelera il rendering (l'originale decodificato costa già 1,6–3 ms per fotogramma); serve soprattutto ai RAW e ai file molto grandi. Il ritardo del trascinamento sui JPG dipendeva dall'interfaccia: vedi la sezione corrispondente di `docs/verifica.md`.
+
+Le miniature del set (ADR-014) aprono il file senza sviluppare il RAW né preparare il proxy (`preparesForEditing: false`): servono un solo rendering piccolo. Solo la foto attiva paga sviluppo e proxy, a ogni selezione nella pellicola (per un RAF circa 2–3 s invece di 0,8 s, in cambio di un trascinamento fluido).
+
+## ADR-014 — Set di foto in memoria, pellicola ed Esporta tutto
+
+**Stato:** accettato il 18 novembre 2026. Emenda ADR-005: l'esportazione in blocco entra nel perimetro; la persistenza di progetti e sessioni resta esclusa.
+
+**Contesto:** preparare più scatti richiedeva di riaprire ogni foto e la nuova apertura sostituiva la sessione. Requisiti e decisioni dell'utente in `docs/analisi-set-foto.md` (F-11…F-13).
+
+**Decisione:**
+- Il set è un array di `PhotoItem` in `EditorModel`. Ogni foto conserva `EditState`, preset, cronologia annulla/ripristina e snapshot esportato. La foto attiva vive nelle proprietà dell'editor; al cambio foto il suo stato viene salvato nell'item e quello dell'item scelto ripristinato dopo la decodifica fuori dal MainActor. Nessuna conferma tra foto del set.
+- È decodificata solo la foto attiva. Le altre tengono una miniatura di ~160 px del risultato modificato: all'import viene renderizzata in sequenza e poi il documento viene rilasciato; per la foto attiva deriva dall'ultimo frame dell'anteprima, senza render aggiuntivi (ADR-008 invariato).
+- Un nuovo import con il set aperto chiede Aggiungi/Sostituisci. Sostituisci libera il set precedente solo quando almeno un file nuovo è stato aperto (F-01). Duplicati identificati dal percorso standardizzato con symlink risolti.
+- Esporta tutto pianifica i nomi con una funzione pura (`ExportPlan`) ed esporta in sequenza con `ImageRenderer.export`, la stessa geometria di anteprima ed export singolo. Lo stato di ogni foto viene fissato all'avvio. I conflitti con file esistenti producono una sola domanda; nomi doppi nel set e originali del set (anche via symlink o hard link) ricevono sempre un suffisso.
+- Nessuna persistenza: l'uscita con foto modificate e non esportate chiede conferma.
+
+**Conseguenze:** più memoria per le miniature (lineare nel numero di foto, piccola) e un breve caricamento a ogni cambio foto. Le scorciatoie ⌘←/⌘→ hanno precedenza sui campi di testo dell'inspector, dove normalmente spostano il cursore a inizio/fine riga.
 
 ## ADR-013 — Shell editor con componenti di sistema (sostituisce ADR-012)
 
@@ -94,6 +111,8 @@ Gli slider usano tracking AppKit continuo; un clic singolo viene applicato dopo 
 ## ADR-005 — Ambito v0.1 e dati di sessione
 
 **Decisione:** clone manuale offline incluso; nessuna generazione AI. Persistenza dei progetti e batch esclusi da v0.1.
+
+> Emendato da ADR-014 (18 novembre 2026): set di foto in memoria ed Esporta tutto sono inclusi; la persistenza resta esclusa.
 
 ## ADR-006 — Interazione allineata alle HIG macOS
 

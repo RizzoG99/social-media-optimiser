@@ -34,17 +34,20 @@ final class UXRegressionTests: XCTestCase {
         let edited = model.edit
         let missing = url.appendingPathExtension("missing")
         model.open(missing)
-        XCTAssertEqual(model.pendingImageURL, missing)
-        XCTAssertTrue(model.showReplacementConfirmation)
+        XCTAssertEqual(model.pendingImportURLs, [missing])
+        XCTAssertTrue(model.showImportChoice)
         XCTAssertFalse(model.isLoading)
         model.cancelReplacement()
-        XCTAssertNil(model.pendingImageURL)
+        XCTAssertTrue(model.pendingImportURLs.isEmpty)
         XCTAssertEqual(model.edit, edited)
         XCTAssertTrue(model.document === originalDocument)
         model.open(missing)
+        model.replaceSetWithPendingImport()
+        XCTAssertTrue(model.showReplacementConfirmation, "Replacing a set with unexported edits needs confirmation")
         model.discardAndOpenPendingImage()
-        try await waitUntil { !model.isLoading }
+        try await waitUntil { !model.isLoading && !model.isImporting }
         XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(model.items.count, 1, "A failed replacement keeps the previous set")
         XCTAssertTrue(model.document === originalDocument)
         XCTAssertEqual(model.edit, edited)
         XCTAssertTrue(model.hasUnexportedChanges)
@@ -74,8 +77,10 @@ final class UXRegressionTests: XCTestCase {
         try await waitUntil { !model.isExporting }
         XCTAssertFalse(model.hasUnexportedChanges)
         model.open(source)
-        XCTAssertNil(model.pendingImageURL)
-        try await waitUntil { !model.isLoading }
+        XCTAssertTrue(model.showImportChoice)
+        model.replaceSetWithPendingImport()
+        XCTAssertFalse(model.showReplacementConfirmation, "Exported photos are replaced without confirmation")
+        try await waitUntil { !model.isLoading && !model.isImporting }
         XCTAssertEqual(model.edit, EditState())
         XCTAssertFalse(model.canUndo)
     }

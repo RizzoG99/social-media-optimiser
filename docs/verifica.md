@@ -1,5 +1,53 @@
 # Verifica della versione 0.1
 
+## Set di foto e pellicola (ADR-014) — 18 novembre 2026
+
+Implementati F-11…F-13: `PhotoItem`/`ExportPlan`/`PhotoImport` in `Sources/SocialFrame/PhotoSet.swift`, pellicola in `Filmstrip.swift`, set e Esporta tutto in `EditorModel`, comandi in `EditorCommands`, avviso d'uscita in `SocialFrameApp`. Requisiti e analisi in `docs/analisi-set-foto.md`.
+
+### Automatici e build — 18 novembre 2026
+
+- Patch del ramo cloud applicata senza conflitti su `main` (`91a8f10`). Prima compilazione su macOS (Swift 6.4, SDK MacOSX27.0): `swift build --build-tests` e `./scripts/build-app.sh` riusciti al primo tentativo, **nessun errore e nessun avviso** (build pulita dei target `SocialFrame` e `SocialFrameTests`). Nessuna delle correzioni previste (closure `Task.detached`, inferenza delle tuple in `exportAll`, `Sendable`, `Button(_:systemImage:role:)` su macOS 14, `NSApplicationDelegateAdaptor` con delegate `@MainActor`) è stata necessaria.
+- `swift test --enable-code-coverage`: **63 test passati**, zero errori (62 del ramo, inclusi i 12 di `PhotoSetModelTests`, più il nuovo `EditorShellTests.testSetCountsUseSingularForOneItem`). `vtool -show-build`: `minos 14.0`, `sdk 27.0`.
+- I test model restano tali: non sono XCUITest.
+
+### App reale — 18 novembre 2026
+
+`.build/SocialFrame.app` (build release dello script, `it.socialframe.editor`), nessuna sessione utente aperta. Lingua di sistema inglese: menu e dialoghi provati in `en`. Campioni sintetici PNG in `.build/qa` (non versionati): `set5/foto-1…5.png` (1600×1067 e 1067×1600 alternati), `cartella/` con `a/b/c.png` 1200×900, sottocartella `sotto/`, `note.txt` e symlink `link-foto-1.png` → `set5/foto-1.png`; cartella `export/` con un file preesistente `foto-2-instagram-portrait.jpg`. Pannelli Apri/Esporta guidati con Vai alla cartella; trascinamento dal Finder.
+
+| Scenario | Azioni | Esito |
+|---|---|---|
+| T-17 | Apri immagini… con 5 file selezionati; poi la cartella `cartella` | 5 miniature del risultato ritagliato, prima foto attiva, "Photo 1 of 5". Dalla cartella +3 (ordine a, b, c), sottocartella e `.txt` ignorati, prima foto nuova attiva, "Photo 6 of 8". **Superato.** |
+| T-18 | Symlink a `foto-1` nella cartella; trascinamento di a/b/c già presenti → Aggiungi | Symlink non aggiunto; secondo trascinamento: "The chosen photos are already in the set.", nessun doppione. **Superato.** |
+| T-19 | Foto 1: Square, zoom 102 %, raddrizza 0,1°; ⌘→⌘→ alla 3, zoom 101 %; ⌘←⌘← | Foto 1 intatta (preset, zoom, angolo, badge); foto 3 con modifica propria. Quattro ⌘Z sulla foto 1 tornano a Portrait/100/0 e tolgono il badge, la foto 3 resta modificata; quattro ⇧⌘Z ripristinano. **Superato.** |
+| T-20 | ⌘→ ripetuto a ~0,8 s | Si apre l'ultima foto richiesta. Selezione più rapida del decode coperta solo dal test model `testRapidSelectionShowsOnlyTheLastRequestedPhoto`. **Parziale.** |
+| T-21 | Apri con set aperto; trascinamento con set aperto | Dialogo Add to Set / Replace Set / Cancel sia dal pannello sia dal trascinamento; Aggiungi conserva il set. Sostituisci con modifiche non esportate e import di soli file illeggibili: **solo test model**. |
+| T-22 | Modifica → Esporta tutto → nuova modifica → ⌘Z | Badge arancione → verde → arancione → verde. **Superato.** |
+| T-23 | Canc su foto esportata; Canc su foto modificata | Nessuna domanda sulla prima, selezionata la vicina; sulla seconda "Remove the photo from the set?" → Remove, selezionata la vicina. File su disco invariati. Rimozione dell'ultima foto: solo test model. **Superato** (tranne ultima foto). |
+| T-24 | ⌘← su foto 1; ← con focus nella pellicola; ← sul canvas; Vista › Hide/Show Filmstrip | ⌘← fermo al bordo; ← nella pellicola cambia foto; ← sul canvas sposta l'inquadratura e la foto resta; pellicola nascosta/mostrata, "Photo n of m" resta nella barra di stato. **Superato.** |
+| T-25 | Esporta tutto (⌥⇧⌘E) in `export/` con 1 conflitto → Keep Both; ripetuto con 8 conflitti → Replace | Una sola domanda. Keep Both: file preesistente intatto, nuova copia `foto-2-instagram-portrait-2.jpg`. Replace: sovrascritti gli 8 nomi base, `-2` intatto. Ogni JPEG con le dimensioni del preset della sua foto (`foto-1-instagram-square.jpg` 1080×1080, le altre 1080×1350); "Exported 8 of 8 photos to export"; tutti i badge "esportata". **Superato.** |
+| T-26 | — | Nome di export coincidente con un originale del set: **solo test model** (`testExportAllNeverOverwritesAnOriginalOfTheSet`, `testExportPlanAddsSuffixesAndNeverTargetsOriginals`). Data di modifica degli originali in `set5/` e `cartella/` invariata dopo export e rimozioni. |
+| T-27 | ⌘Q con foto modificate → Cancel / Invio / Quit; ⌘Q senza modifiche non esportate | Avviso "Quit without exporting?"; Cancel e Invio lasciano app e set; Quit chiude. Senza modifiche non esportate l'app esce subito. **Superato.** |
+
+Quality gate `macos-swiftui-pro`:
+
+- **Tema scuro e chiaro:** scuro con il tema di sistema; chiaro avviando il bundle con `-NSRequiresAquaSystemAppearance YES` (solo argomento di avvio, preferenze dell'utente non toccate). Pellicola, badge, anello di selezione e dialoghi leggibili in entrambi.
+- **Finestra minima:** ridotta a 1020×680 punti di contenuto con pellicola visibile: canvas, 6 miniature e barra di stato ("Photo 2 of 6 · View 74% · sRGB") restano interi.
+- **Accessibilità:** albero AX con un `AXButton` per miniatura ed etichetta = nome del file. Valore di stato ("Edited, not exported"/"Exported"/"No changes") e tratto selezionato verificati solo nel codice: lettura AX da script negata (osascript senza accesso Accessibilità) e VoiceOver non avviato. **Non provato con VoiceOver.**
+- **Riduci movimento:** non attivato per non cambiare le preferenze di sistema. Verificato nel codice: `FilmstripView` scorre senza animazione con `accessibilityReduceMotion`, e la `transaction` di `EditorView` disattiva le animazioni. **Non provato a schermo.**
+
+### Difetti trovati e corretti
+
+- **"1 files already exist in the folder."** I conteggi del set non avevano il singolare (anche "1 file non importati", "Export 1 photos", "Exported 1 of 1 photos"). Aggiunti `Localizable.stringsdict` in `it` ed `en` con regole plurali per le chiavi coinvolte; le voci di `Localizable.strings` restano come ripiego e per il test delle chiavi. Nuovo test `testSetCountsUseSingularForOneItem`. Verificato nell'app: "A file already exists in the folder."
+- **Avviso di uscita con Esci predefinito.** Invio sceglieva l'azione che scarta il set. Ora Esci è distruttivo (rosso) e senza tasto Invio, Annulla è il pulsante predefinito (HIG). Verificato: Invio annulla.
+- **Anello di focus della pellicola sotto l'inspector.** Con l'inspector flottante di macOS 26 la vista di scorrimento si estende sotto il pannello e l'anello di sistema lo attraversava. La pellicola è ora ritagliata come il canvas, l'anello di sistema è disattivato e il focus si mostra con un secondo bordo d'accento sulla miniatura selezionata, solo mentre la pellicola ha il focus. Verificato in chiaro: compare al clic sulla miniatura e scompare quando il focus passa al canvas.
+
+### Limiti
+
+- Il primo clic su una finestra inattiva la attiva soltanto: la pellicola prende il focus dal clic successivo (comportamento di sistema).
+- Nel trascinamento dal Finder l'ordine è quello del pasteboard (b, a, c nella prova), non alfabetico; l'ordinamento del Finder vale per le cartelle.
+- ~~Aprire più file dal Finder con "Apri con" invia un URL alla volta; dal secondo file compare la domanda Aggiungi/Sostituisci.~~ Risolto con la scena `Window` unica: i file arrivano tutti insieme a `AppDelegate.application(_:open:)` (vedi “Unione con il set di foto” sotto).
+- Non provati nell'app: Sostituisci con modifiche non esportate, import di soli file illeggibili, rimozione dell'ultima foto, export nella cartella degli originali con nome coincidente, selezione più veloce del decode, VoiceOver e Riduci movimento a schermo. Coperti dai test model indicati sopra, tranne VoiceOver e Riduci movimento.
+
 ## Shell HIG (ADR-013) — 12 novembre 2026
 
 Shell riscritta secondo la skill `macos-swiftui-pro`: titolo = nome del file, preset nel sottotitolo, toolbar di sistema (selettore segmentato; Ruota 90° e inspector; spaziatore fisso; Esporta prominente), sidebar `List` con `Section(isExpanded:)` e simboli del rapporto, inspector `Form` raggruppato, comandi vista e strumenti nei menu Vista e Immagine, barra di stato solo testuale. Le voci successive sulla shell (da "Liquid Glass" a "Controlli vista nella barra inferiore") sono resoconti storici della shell superata.
@@ -253,8 +301,19 @@ Correzioni: posto fisso per l'indicatore; `isRendering` non è più pubblicato e
 
 Limiti: la latenza evento→fotogramma con i trascinamenti sintetici (5–10 eventi) è troppo rumorosa per un confronto (~135 ms mediana in entrambe le build) e non è un dato di trackpad fisico. Resta il ricalcolo di `EditorView` a ogni modifica del model (circa 420 campioni), che richiede di separare canvas, sidebar e inspector. La build con la filmstrip in uso dall'utente non è stata misurata.
 
-RAF (stesso scatto, 6240×4160): ogni fotogramma ricompone il RAW, circa 760 ms. Misurate le alternative: `kCGImageSourceShouldCacheImmediately` 500 ms (inutile); proxy 2048 px 2 ms (1 s di preparazione, qualità limitata oltre circa 1,5× di zoom); RAW sviluppato una volta in bitmap a piena risoluzione 12 ms (1,1 s e 103 MB all'import). Implementate entrambe (ADR-014). Con lo stesso RAF, trascinamento simulato a 120 Hz nel model (build release): 120 fotogrammi su 120 eventi sia a zoom 1 (proxy) sia a zoom 3 (originale sviluppato), contro circa 15 prima. Import: JPG 0,12–0,15 s, RAF 2–3,3 s (sviluppo 1,1 s, proxy 0,24 s). Test `PreviewProxyTests`: proxy solo oltre 3072 px, stessa inquadratura dell'originale (differenza media sotto 1,5 livelli su un gradiente), originale oltre la densità del proxy (byte identici), export identico all'originale e diverso dal proxy su un campione a righe di un pixel.
+RAF (stesso scatto, 6240×4160): ogni fotogramma ricompone il RAW, circa 760 ms. Misurate le alternative: `kCGImageSourceShouldCacheImmediately` 500 ms (inutile); proxy 2048 px 2 ms (1 s di preparazione, qualità limitata oltre circa 1,5× di zoom); RAW sviluppato una volta in bitmap a piena risoluzione 12 ms (1,1 s e 103 MB all'import). Implementate entrambe (ADR-015). Con lo stesso RAF, trascinamento simulato a 120 Hz nel model (build release): 120 fotogrammi su 120 eventi sia a zoom 1 (proxy) sia a zoom 3 (originale sviluppato), contro circa 15 prima. Import: JPG 0,12–0,15 s, RAF 2–3,3 s (sviluppo 1,1 s, proxy 0,24 s). Test `PreviewProxyTests`: proxy solo oltre 3072 px, stessa inquadratura dell'originale (differenza media sotto 1,5 livelli su un gradiente), originale oltre la densità del proxy (byte identici), export identico all'originale e diverso dal proxy su un campione a righe di un pixel.
 
 Collaudo nella copia isolata con `DSCF0898.RAF` e `DSCF0899.RAF`: anteprima corretta all'apertura, sostituzione senza conferma quando non ci sono modifiche. In un primo avvio la stessa copia ha mostrato per un istante una fascia bianca irregolare in basso e una modifica non esportata che nessuna azione di collaudo aveva prodotto; tre riaperture pulite e il controllo dei pixel nel model (nessuna fascia, nessuna modifica dopo l'import) non l'hanno riprodotta. Tre ulteriori avvii con la stessa sequenza dello script (build, avvio diretto del binario, `open -a` con il RAF) sono risultati puliti. La causa non è stata identificata; la finestra di collaudo compare davanti sullo schermo dell'utente e un clic involontario è possibile ma non dimostrato. Da ricontrollare se ricompare.
 
-Nella stessa copia, con `DSCF0898.RAF`: zoom 200%, trascinamento, Modifica ▸ Annulla dalla barra dei menu riporta l'inquadratura precedente (comandi guidati da `EditorMenuState`). Export dal pannello File ▸ Esporta… in `~/Documents/socialframe-raf-export-check.jpg`: controllo `sips` **1080×1350, sRGB IEC61966-2.1**, stato “Esportato …”. Confronto export RAF prima/dopo in ADR-014. Non verificati: trackpad fisico, memoria con più RAF aperti in sequenza.
+Nella stessa copia, con `DSCF0898.RAF`: zoom 200%, trascinamento, Modifica ▸ Annulla dalla barra dei menu riporta l'inquadratura precedente (comandi guidati da `EditorMenuState`). Export dal pannello File ▸ Esporta… in `~/Documents/socialframe-raf-export-check.jpg`: controllo `sips` **1080×1350, sRGB IEC61966-2.1**, stato “Esportato …”. Confronto export RAF prima/dopo in ADR-015. Non verificati: trackpad fisico, memoria con più RAF aperti in sequenza.
+
+### Unione con il set di foto (ADR-014) — 20 novembre 2026
+
+Il set di foto è arrivato su `main` mentre questi rami erano aperti. Nell'unione:
+
+- Resta la scena `Window` unica (con `WindowGroup` ogni file aperto dal Finder creava una finestra sullo stesso model). Su `Window`, `onOpenURL` riceve solo il primo file: le aperture dal Finder passano ora per `AppDelegate.application(_:open:)`, che consegna tutti i file al set in un solo import e li conserva se arrivano prima che la finestra colleghi il model. Test `FinderOpenTests`.
+- Il worker di import a foto singola e `ImportBurstTests` sono stati sostituiti dall'import del set di `main`; il resto della correzione del blocco (finestra unica) rimane.
+- `EditorMenuState` copre anche Esporta tutto, Foto precedente/successiva e Rimuovi dal set.
+- Le miniature del set aprono i file con `preparesForEditing: false`: nessuno sviluppo RAW né proxy per foto che non entrano nell'editor.
+
+Collaudo nella copia isolata `it.socialframe.perf` con la scheda SD: `open -a` con quattro file (JPG e RAF) apre una sola finestra con un set di quattro foto nell'ordine (“Foto nel set: 4 · aggiunte: 4”), miniatura RAF presente; selezione del RAF dalla pellicola; Immagine ▸ Foto successiva dal menu passa alla foto 3 di 4; con il set aperto, `open -a` con altri due file mostra una sola domanda Aggiungi/Sostituisci e Aggiungi porta il set a sei foto. Suite completa: 70 test. Non ripetuti dopo l'unione: trascinamento sintetico con `sample` ed export RAF dal pannello.

@@ -4,11 +4,11 @@ import ImageIO
 import UniformTypeIdentifiers
 @testable import SocialCore
 
-/// Il proxy accelera l'anteprima delle foto grandi senza cambiare geometria né export (ADR-014).
+/// Il proxy accelera l'anteprima delle foto grandi senza cambiare geometria né export (ADR-015).
 final class PreviewProxyTests: XCTestCase {
     private enum Pattern { case gradient, stripes }
 
-    private func document(width: Int, height: Int, _ pattern: Pattern) throws -> ImageDocument {
+    private func document(width: Int, height: Int, _ pattern: Pattern, preparesForEditing: Bool = true) throws -> ImageDocument {
         let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         let pixels = context.data!.bindMemory(to: UInt8.self, capacity: context.bytesPerRow * height)
@@ -27,7 +27,7 @@ final class PreviewProxyTests: XCTestCase {
         let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(destination, context.makeImage()!, nil)
         XCTAssertTrue(CGImageDestinationFinalize(destination))
-        return try ImageDocument(data: data as Data)
+        return try ImageDocument(data: data as Data, preparesForEditing: preparesForEditing)
     }
 
     private func bytes(_ image: CGImage) -> [UInt8] {
@@ -51,6 +51,10 @@ final class PreviewProxyTests: XCTestCase {
         XCTAssertTrue(large.hasProxy)
         XCTAssertEqual(large.proxyDensity, 3072.0 / 3200, accuracy: 0.001)
         XCTAssertEqual(large.pixelWidth, 3200, "Le dimensioni dichiarate restano quelle dell'originale")
+        // Le miniature del set non preparano l'editing: nessun proxy da costruire e scartare.
+        let thumbnailOnly = try document(width: 3200, height: 2400, .gradient, preparesForEditing: false)
+        XCTAssertFalse(thumbnailOnly.hasProxy)
+        XCTAssertEqual(thumbnailOnly.pixelWidth, 3200)
     }
 
     func testPreviewUsesProxyWithSameGeometryAndOriginalWhenZoomed() throws {

@@ -14,9 +14,11 @@ final class PanResponsivenessTests: XCTestCase {
                                       samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                       bytesPerRow: 0, bitsPerPixel: 0)!
         memset(bitmap.bitmapData!, 120, bitmap.bytesPerRow * 300)
-        let data = bitmap.representation(using: .png, properties: [:])!
-        let model = EditorModel(loadDocument: { _ in try ImageDocument(data: data) })
-        model.open(URL(fileURLWithPath: "/pan/photo.png"))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        try bitmap.representation(using: .png, properties: [:])!.write(to: url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let model = EditorModel()
+        model.open(url)
         for _ in 0..<250 {
             if !model.isLoading && model.preview != nil && !model.isRendering { break }
             try await Task.sleep(for: .milliseconds(20))

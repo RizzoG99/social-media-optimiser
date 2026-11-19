@@ -90,4 +90,28 @@ final class EditorShellTests: XCTestCase {
             for key in keys { XCTAssertNotNil(strings[key], "\(language): \(key)") }
         }
     }
+
+    /// I conteggi del set usano le regole plurali (`Localizable.stringsdict`):
+    /// con un solo elemento il messaggio non deve dire "1 files".
+    func testSetCountsUseSingularForOneItem() throws {
+        let cases: [(language: String, key: String, one: String, many: String)] = [
+            ("en", "%d file esistono già nella cartella.", "A file already exists in the folder.", "3 files already exist in the folder."),
+            ("it", "%d file esistono già nella cartella.", "Un file esiste già nella cartella.", "3 file esistono già nella cartella."),
+            ("en", "%d file non importati:", "1 file not imported:", "3 files not imported:"),
+            ("it", "%d foto non esportate:", "1 foto non esportata:", "3 foto non esportate:"),
+            ("en", "Esporta %d foto, ciascuna con il proprio formato social.", "Export 1 photo with its social format.", "Export 3 photos, each with its own social format."),
+        ]
+        for item in cases {
+            let path = try XCTUnwrap(Bundle.module.path(forResource: item.language, ofType: "lproj"))
+            let bundle = try XCTUnwrap(Bundle(path: path))
+            let format = bundle.localizedString(forKey: item.key, value: nil, table: nil)
+            let locale = Locale(identifier: item.language)
+            XCTAssertEqual(String(format: format, locale: locale, 1), item.one, "\(item.language): \(item.key)")
+            XCTAssertEqual(String(format: format, locale: locale, 3), item.many, "\(item.language): \(item.key)")
+        }
+        let path = try XCTUnwrap(Bundle.module.path(forResource: "en", ofType: "lproj"))
+        let format = try XCTUnwrap(Bundle(path: path)).localizedString(forKey: "Esportate %d foto su %d in %@", value: nil, table: nil)
+        XCTAssertEqual(String(format: format, locale: Locale(identifier: "en"), 1, 1, "out"), "Exported 1 of 1 photo to out")
+        XCTAssertEqual(String(format: format, locale: Locale(identifier: "en"), 2, 5, "out"), "Exported 2 of 5 photos to out")
+    }
 }

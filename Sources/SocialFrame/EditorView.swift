@@ -12,6 +12,7 @@ struct EditorView: View {
     @State private var dragOrigin: EditState?
     @State private var magnifyOrigin: Double?
     @AppStorage("canvasBackground") private var canvasBackground = "gray"
+    @AppStorage("filmstripVisible") private var filmstripVisible = true
     @State private var expandedPlatforms: Set<Platform> = []
     @State private var viewDragOrigin: CGSize?
     @State private var cropping = false
@@ -44,6 +45,10 @@ struct EditorView: View {
                     .background(canvasColor)
                     .clipped()
                     .animation(interfaceAnimation, value: model.preview != nil)
+                if filmstripVisible && !model.items.isEmpty {
+                    Divider()
+                    FilmstripView(model: model)
+                }
                 Divider()
                 statusBar
             }
@@ -56,19 +61,39 @@ struct EditorView: View {
         }
         .toolbar { toolbarContent }
         .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first else { return false }
-            model.open(url); return true
+            guard !urls.isEmpty else { return false }
+            model.open(urls); return true
         }
         .alert("Impossibile completare l’operazione", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
         } message: { Text(model.errorMessage ?? "") }
-        .confirmationDialog("Esportare le modifiche prima di aprire un’altra immagine?", isPresented: $model.showReplacementConfirmation, titleVisibility: .visible) {
+        .confirmationDialog("Aggiungere le foto al set aperto?", isPresented: $model.showImportChoice, titleVisibility: .visible) {
+            Button("Aggiungi al set", action: model.addPendingImport)
+            Button("Sostituisci il set", action: model.replaceSetWithPendingImport)
+            Button("Annulla", role: .cancel, action: model.cancelReplacement)
+        } message: {
+            Text("Puoi aggiungerle alle foto aperte oppure chiudere il set attuale e aprire solo le nuove.")
+        }
+        .confirmationDialog("Esportare le modifiche prima di sostituire il set?", isPresented: $model.showReplacementConfirmation, titleVisibility: .visible) {
             Button("Esporta e apri…", action: model.exportAndOpenPendingImage)
                 .disabled(model.isExporting)
             Button("Scarta modifiche e apri", role: .destructive, action: model.discardAndOpenPendingImage)
             Button("Annulla", role: .cancel, action: model.cancelReplacement)
         } message: {
-            Text("Le modifiche attuali non sono state esportate. Aprendo un’altra immagine perderai la sessione e la cronologia.")
+            Text("Alcune foto hanno modifiche non esportate. Sostituendo il set perderai le modifiche e la cronologia.")
+        }
+        .confirmationDialog("Rimuovere la foto dal set?", isPresented: $model.showRemovalConfirmation, titleVisibility: .visible) {
+            Button("Rimuovi", role: .destructive, action: model.confirmRemoval)
+            Button("Annulla", role: .cancel, action: model.cancelRemoval)
+        } message: {
+            Text("Le modifiche non esportate andranno perse. Il file sul Mac resta dov’è.")
+        }
+        .confirmationDialog(Text(L10n.format("%d file esistono già nella cartella.", model.pendingExportAll?.conflictCount ?? 0)), isPresented: $model.showExportConflicts, titleVisibility: .visible) {
+            Button("Sostituisci", role: .destructive) { model.resolveExportConflicts(.replace) }
+            Button("Mantieni entrambi") { model.resolveExportConflicts(.keepBoth) }
+            Button("Annulla", role: .cancel, action: model.cancelExportAll)
+        } message: {
+            Text("Mantieni entrambi aggiunge un numero al nome delle nuove copie. Gli originali non vengono mai sostituiti.")
         }
         .transaction { transaction in
             if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
@@ -200,7 +225,7 @@ struct EditorView: View {
         HStack(spacing: 8) {
             // Posto fisso: comparendo e scomparendo, l'indicatore cambiava l'altezza della
             // barra e quindi del canvas, rifacendo il layout dell'intera finestra a ogni fotogramma.
-            let busy = model.isLoading || model.isExporting || model.showsRenderProgress
+            let busy = model.isLoading || model.isImporting || model.isExporting || model.showsRenderProgress
             ProgressView().controlSize(.small)
                 .opacity(busy ? 1 : 0)
                 .accessibilityHidden(!busy)
@@ -208,6 +233,9 @@ struct EditorView: View {
                 .contentTransition(.opacity)
                 .animation(interfaceAnimation, value: model.status)
             Spacer(minLength: 12)
+            if model.items.count > 1, let index = model.selectedIndex {
+                Text(L10n.format("Foto %d di %d", index + 1, model.items.count)).monospacedDigit()
+            }
             if model.document != nil {
                 Text(L10n.format("Vista %d%%", Int((viewState.currentScale * 100).rounded()))).monospacedDigit()
             }
@@ -237,9 +265,9 @@ struct EditorView: View {
             ContentUnavailableView {
                 Label("Dai spazio alle tue foto", systemImage: "crop.rotate")
             } description: {
-                Text("Trascina qui una foto oppure aprila dal Mac.\nScegli un formato e trova la tua inquadratura.")
+                Text("Trascina qui una o più foto oppure aprile dal Mac.\nScegli un formato e trova la tua inquadratura.")
             } actions: {
-                Button("Apri immagine…", action: model.chooseImage).controlSize(.large)
+                Button("Apri immagini…", action: model.chooseImage).controlSize(.large)
             }
             .transition(reduceMotion ? .identity : .opacity)
         }
@@ -622,7 +650,7 @@ struct EditorView: View {
         } header: {
             Text(L10n.text("Esportazione"))
         } footer: {
-            Text("L’originale resta intatto. La sessione si perde aprendo un’altra immagine o chiudendo l’app.")
+            Text("L’originale resta intatto. Le modifiche restano in memoria finché sostituisci il set o chiudi l’app.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

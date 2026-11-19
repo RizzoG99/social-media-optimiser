@@ -25,7 +25,7 @@ public enum SocialCoreError: Error, Equatable, LocalizedError {
 public final class ImageDocument {
     let image: CIImage
     /// Copia ridotta per l'anteprima, riportata all'estensione dell'originale: stessa geometria,
-    /// solo meno pixel. `nil` quando l'originale non supera già il lato del proxy (ADR-014).
+    /// solo meno pixel. `nil` quando l'originale non supera già il lato del proxy (ADR-015).
     let proxy: CIImage?
     /// Pixel del proxy per pixel dell'originale (1 senza proxy).
     let proxyDensity: Double
@@ -39,18 +39,20 @@ public final class ImageDocument {
     /// `true` se l'anteprima può usare il proxy.
     public var hasProxy: Bool { proxy != nil }
 
-    public convenience init(url: URL) throws {
+    /// With `preparesForEditing` false the RAW is not developed and no proxy is built:
+    /// enough for a single small render such as a thumbnail.
+    public convenience init(url: URL, preparesForEditing: Bool = true) throws {
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
         guard let size, size <= 512_000_000 else { throw SocialCoreError.tooLarge }
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        try self.init(data: data, sourceURL: url)
+        try self.init(data: data, sourceURL: url, preparesForEditing: preparesForEditing)
     }
 
-    public convenience init(data: Data) throws {
-        try self.init(data: data, sourceURL: nil)
+    public convenience init(data: Data, preparesForEditing: Bool = true) throws {
+        try self.init(data: data, sourceURL: nil, preparesForEditing: preparesForEditing)
     }
 
-    private init(data: Data, sourceURL: URL?) throws {
+    private init(data: Data, sourceURL: URL?, preparesForEditing: Bool) throws {
         guard data.count <= 512_000_000 else { throw SocialCoreError.tooLarge }
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -62,7 +64,7 @@ public final class ImageDocument {
         guard var cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw SocialCoreError.invalidImage }
         // Un RAW restituito da ImageIO viene sviluppato di nuovo a ogni rendering (circa 0,8 s
         // per 26 MP): si sviluppa una volta qui, e anteprima ed export usano gli stessi pixel.
-        if let type = CGImageSourceGetType(source).flatMap({ UTType($0 as String) }), type.conforms(to: .rawImage) {
+        if preparesForEditing, let type = CGImageSourceGetType(source).flatMap({ UTType($0 as String) }), type.conforms(to: .rawImage) {
             cg = try Self.developed(cg)
         }
         let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.int32Value ?? 1
@@ -71,7 +73,7 @@ public final class ImageDocument {
         guard extent.width > 0, extent.height > 0 else { throw SocialCoreError.invalidImage }
         image = oriented.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
         pixelWidth = Int(extent.width); pixelHeight = Int(extent.height); self.sourceURL = sourceURL
-        (proxy, proxyDensity) = try Self.makeProxy(of: image, width: pixelWidth, height: pixelHeight)
+        (proxy, proxyDensity) = preparesForEditing ? try Self.makeProxy(of: image, width: pixelWidth, height: pixelHeight) : (nil, 1)
     }
 
     private static func developed(_ raw: CGImage) throws -> CGImage {

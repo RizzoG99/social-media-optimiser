@@ -45,8 +45,10 @@ final class EditorModelTests: XCTestCase {
         XCTAssertEqual(exported.pixelHeight, model.preset.height)
         XCTAssertEqual(try Data(contentsOf: source), data)
         model.open(source.appendingPathExtension("missing"))
+        XCTAssertTrue(model.showImportChoice, "With a set open, new files ask whether to add or replace")
+        model.addPendingImport()
         for _ in 0..<150 {
-            if !model.isLoading { break }
+            if !model.isLoading && !model.isImporting { break }
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertNotNil(model.errorMessage)

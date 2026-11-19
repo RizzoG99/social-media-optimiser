@@ -10,6 +10,7 @@ final class EditorMenuState: ObservableObject {
     struct Values: Equatable {
         var hasDocument = false, isLoading = false, isExporting = false
         var canUndo = false, canRedo = false, isAutoLeveling = false
+        var canExportAll = false, canSelectPrevious = false, canSelectNext = false, hasSelection = false
         var gridStyle = CompositionGrid.thirds
     }
     @Published private(set) var values = Values()
@@ -30,6 +31,8 @@ final class EditorMenuState: ObservableObject {
     private static func values(of model: EditorModel) -> Values {
         Values(hasDocument: model.document != nil, isLoading: model.isLoading, isExporting: model.isExporting,
                canUndo: model.canUndo, canRedo: model.canRedo, isAutoLeveling: model.isAutoLeveling,
+               canExportAll: model.canExportAll, canSelectPrevious: model.canSelectPrevious,
+               canSelectNext: model.canSelectNext, hasSelection: model.selectedItemID != nil,
                gridStyle: model.gridStyle)
     }
 }
@@ -42,6 +45,7 @@ struct EditorCommands: Commands {
     @ObservedObject var menu: EditorMenuState
     @ObservedObject var viewState: EditorViewState
     @AppStorage("canvasBackground") private var canvasBackground = "gray"
+    @AppStorage("filmstripVisible") private var filmstripVisible = true
 
     private var state: EditorMenuState.Values { menu.values }
     private var editingDisabled: Bool { !state.hasDocument || state.isLoading }
@@ -49,7 +53,7 @@ struct EditorCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button(action: model.chooseImage) { Label("Apri immagine…", systemImage: "photo.on.rectangle") }
+            Button(action: model.chooseImage) { Label("Apri immagini…", systemImage: "photo.on.rectangle") }
                 .keyboardShortcut("o")
         }
         CommandGroup(replacing: .undoRedo) {
@@ -62,6 +66,9 @@ struct EditorCommands: Commands {
             Button(action: model.export) { Label("Esporta…", systemImage: "square.and.arrow.up") }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(!state.hasDocument || state.isExporting || state.isLoading)
+            Button { model.exportAll() } label: { Label("Esporta tutto…", systemImage: "square.and.arrow.up.on.square") }
+                .keyboardShortcut("e", modifiers: [.command, .shift, .option])
+                .disabled(!state.canExportAll)
         }
         SidebarCommands()
         // `InspectorCommands` mostra "Inspector Hide" in italiano: comando proprio
@@ -71,6 +78,9 @@ struct EditorCommands: Commands {
                 viewState.inspectorVisible.toggle()
             }
             .keyboardShortcut("i", modifiers: [.command, .control])
+            Button(filmstripVisible ? L10n.text("Nascondi pellicola") : L10n.text("Mostra pellicola")) {
+                filmstripVisible.toggle()
+            }
         }
         CommandGroup(before: .toolbar) {
             Button("Adatta alla finestra", action: viewState.fit)
@@ -105,6 +115,16 @@ struct EditorCommands: Commands {
                 .disabled(editingDisabled || state.isAutoLeveling)
             Divider()
             Button("Azzera modifiche", action: model.reset).disabled(editingDisabled)
+            Divider()
+            // ⌘← / ⌘→: le frecce semplici spostano l'inquadratura nel canvas.
+            Button("Foto precedente", action: model.selectPrevious)
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+                .disabled(!state.canSelectPrevious)
+            Button("Foto successiva", action: model.selectNext)
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+                .disabled(!state.canSelectNext)
+            Button("Rimuovi dal set") { if let id = model.selectedItemID { model.requestRemoval(of: id) } }
+                .disabled(!state.hasSelection || state.isExporting)
         }
     }
 }
