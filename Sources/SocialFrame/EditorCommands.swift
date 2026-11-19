@@ -8,13 +8,14 @@ struct EditorCommands: Commands {
     @ObservedObject var model: EditorModel
     @ObservedObject var viewState: EditorViewState
     @AppStorage("canvasBackground") private var canvasBackground = "gray"
+    @AppStorage("filmstripVisible") private var filmstripVisible = true
 
     private var editingDisabled: Bool { model.document == nil || model.isLoading }
     private var viewZoomDisabled: Bool { editingDisabled || viewState.tool == .crop }
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button(action: model.chooseImage) { Label("Apri immagine…", systemImage: "photo.on.rectangle") }
+            Button(action: model.chooseImage) { Label("Apri immagini…", systemImage: "photo.on.rectangle") }
                 .keyboardShortcut("o")
         }
         CommandGroup(replacing: .undoRedo) {
@@ -27,6 +28,9 @@ struct EditorCommands: Commands {
             Button(action: model.export) { Label("Esporta…", systemImage: "square.and.arrow.up") }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(model.document == nil || model.isExporting || model.isLoading)
+            Button { model.exportAll() } label: { Label("Esporta tutto…", systemImage: "square.and.arrow.up.on.square") }
+                .keyboardShortcut("e", modifiers: [.command, .shift, .option])
+                .disabled(!model.canExportAll)
         }
         SidebarCommands()
         // `InspectorCommands` mostra "Inspector Hide" in italiano: comando proprio
@@ -36,6 +40,9 @@ struct EditorCommands: Commands {
                 viewState.inspectorVisible.toggle()
             }
             .keyboardShortcut("i", modifiers: [.command, .control])
+            Button(filmstripVisible ? L10n.text("Nascondi pellicola") : L10n.text("Mostra pellicola")) {
+                filmstripVisible.toggle()
+            }
         }
         CommandGroup(before: .toolbar) {
             Button("Adatta alla finestra", action: viewState.fit)
@@ -70,6 +77,16 @@ struct EditorCommands: Commands {
                 .disabled(editingDisabled || model.isAutoLeveling)
             Divider()
             Button("Azzera modifiche", action: model.reset).disabled(editingDisabled)
+            Divider()
+            // ⌘← / ⌘→: le frecce semplici spostano l'inquadratura nel canvas.
+            Button("Foto precedente", action: model.selectPrevious)
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+                .disabled(!model.canSelectPrevious)
+            Button("Foto successiva", action: model.selectNext)
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+                .disabled(!model.canSelectNext)
+            Button("Rimuovi dal set") { if let id = model.selectedItemID { model.requestRemoval(of: id) } }
+                .disabled(model.selectedItemID == nil || model.isExporting)
         }
     }
 }

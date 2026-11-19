@@ -4,6 +4,7 @@ L'app include risorse complete in **italiano e inglese**, anche per menu e dialo
 
 - `Sources/SocialFrame/Resources/it.lproj/Localizable.strings`: etichette SwiftUI, nomi dei formati, messaggi dinamici, aiuti e accessibilità.
 - `Sources/SocialCore/Resources/it.lproj/Localizable.strings`: descrizioni degli errori, senza dipendenza dalla UI.
+- `Sources/SocialFrame/Resources/<lingua>.lproj/Localizable.stringsdict`: regole plurali per i conteggi del set (per esempio "Un file esiste già" contro "%d file esistono già"). Prevale su `.strings` per le stesse chiavi; le voci di `.strings` restano come ripiego e per il test di parità delle chiavi (`EditorShellTests`). Una chiave con conteggio va aggiunta in entrambi i file e in tutte le lingue.
 - `L10n.text` e `L10n.format` risolvono i testi dinamici nel bundle del target. File utente, ID dei preset e nomi dei simboli restano dati.
 - Le etichette SwiftUI letterali fanno lookup nel bundle principale: `build-app.sh` copia **tutte** le cartelle linguistiche UI, oltre ai due bundle SwiftPM, e aggiorna `CFBundleLocalizations` dall'elenco delle risorse UI.
 

@@ -1,5 +1,20 @@
 # Decisioni architetturali (ADR)
 
+## ADR-014 — Set di foto in memoria, pellicola ed Esporta tutto
+
+**Stato:** accettato il 18 novembre 2026. Emenda ADR-005: l'esportazione in blocco entra nel perimetro; la persistenza di progetti e sessioni resta esclusa.
+
+**Contesto:** preparare più scatti richiedeva di riaprire ogni foto e la nuova apertura sostituiva la sessione. Requisiti e decisioni dell'utente in `docs/analisi-set-foto.md` (F-11…F-13).
+
+**Decisione:**
+- Il set è un array di `PhotoItem` in `EditorModel`. Ogni foto conserva `EditState`, preset, cronologia annulla/ripristina e snapshot esportato. La foto attiva vive nelle proprietà dell'editor; al cambio foto il suo stato viene salvato nell'item e quello dell'item scelto ripristinato dopo la decodifica fuori dal MainActor. Nessuna conferma tra foto del set.
+- È decodificata solo la foto attiva. Le altre tengono una miniatura di ~160 px del risultato modificato: all'import viene renderizzata in sequenza e poi il documento viene rilasciato; per la foto attiva deriva dall'ultimo frame dell'anteprima, senza render aggiuntivi (ADR-008 invariato).
+- Un nuovo import con il set aperto chiede Aggiungi/Sostituisci. Sostituisci libera il set precedente solo quando almeno un file nuovo è stato aperto (F-01). Duplicati identificati dal percorso standardizzato con symlink risolti.
+- Esporta tutto pianifica i nomi con una funzione pura (`ExportPlan`) ed esporta in sequenza con `ImageRenderer.export`, la stessa geometria di anteprima ed export singolo. Lo stato di ogni foto viene fissato all'avvio. I conflitti con file esistenti producono una sola domanda; nomi doppi nel set e originali del set (anche via symlink o hard link) ricevono sempre un suffisso.
+- Nessuna persistenza: l'uscita con foto modificate e non esportate chiede conferma.
+
+**Conseguenze:** più memoria per le miniature (lineare nel numero di foto, piccola) e un breve caricamento a ogni cambio foto. Le scorciatoie ⌘←/⌘→ hanno precedenza sui campi di testo dell'inspector, dove normalmente spostano il cursore a inizio/fine riga.
+
 ## ADR-013 — Shell editor con componenti di sistema (sostituisce ADR-012)
 
 **Stato:** accettato il 12 novembre 2026. Sostituisce ADR-012 e le parti di ADR-011 su barra a schede, slider della vista in alto a sinistra e posizione dei controlli Adatta/100%.
@@ -86,6 +101,8 @@ Gli slider usano tracking AppKit continuo; un clic singolo viene applicato dopo 
 ## ADR-005 — Ambito v0.1 e dati di sessione
 
 **Decisione:** clone manuale offline incluso; nessuna generazione AI. Persistenza dei progetti e batch esclusi da v0.1.
+
+> Emendato da ADR-014 (18 novembre 2026): set di foto in memoria ed Esporta tutto sono inclusi; la persistenza resta esclusa.
 
 ## ADR-006 — Interazione allineata alle HIG macOS
 
