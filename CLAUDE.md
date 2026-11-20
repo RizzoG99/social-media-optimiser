@@ -12,6 +12,7 @@ Le regole di contributo stanno in `AGENTS.md` (importato sopra) e non vanno ripe
 swift test --enable-code-coverage          # suite completa (richiesta per cambi di codice)
 ./scripts/build-app.sh                     # build release → .build/SocialFrame.app, firmata ad hoc
 open .build/SocialFrame.app                # un'istanza già aperta non carica il nuovo binario
+./scripts/release.sh 0.2.0                 # DMG universale firmato Developer ID e notarizzato (docs/rilascio.md)
 swift test list                            # identificatori dei test
 swift test --filter HorizonScenarioTests   # una classe
 swift test --filter SocialFrameTests.EditorModelTests/testCropUndoRedoAndNewEditInvalidatesRedo  # un metodo
@@ -52,5 +53,5 @@ Due target SwiftPM: `SocialCore` (libreria, motore immagini senza UI) e `SocialF
 
 ## Documentazione e procedure
 
-- `docs/adr.md` motiva le scelte (ADR-001…015); `docs/requisiti-prodotto.md` definisce i requisiti F-xx; `docs/scenari-test.md` gli scenari T-xx; `docs/verifica.md` registra le verifiche eseguite e i limiti; `docs/analisi-set-foto.md` raccoglie requisiti e analisi del set di foto.
+- `docs/adr.md` motiva le scelte (ADR-001…015); `docs/requisiti-prodotto.md` definisce i requisiti F-xx; `docs/scenari-test.md` gli scenari T-xx; `docs/verifica.md` registra le verifiche eseguite e i limiti; `docs/analisi-set-foto.md` raccoglie requisiti e analisi del set di foto. `docs/rilascio.md` descrive firma, notarizzazione e pubblicazione su GitHub Releases.
 - Le procedure di progetto stanno in `.agents/skills/*/SKILL.md`; `.claude/skills` e `.codex/skills` contengono solo symlink verso di esse. Leggere direttamente il file pertinente quando il compito riguarda pipeline immagini, interazione macOS, shell SwiftUI/HIG, audit UI o manutenzione dei preset.
