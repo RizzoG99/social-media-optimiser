@@ -45,7 +45,7 @@ Quality gate `macos-swiftui-pro`:
 
 - Il primo clic su una finestra inattiva la attiva soltanto: la pellicola prende il focus dal clic successivo (comportamento di sistema).
 - Nel trascinamento dal Finder l'ordine è quello del pasteboard (b, a, c nella prova), non alfabetico; l'ordinamento del Finder vale per le cartelle.
-- Aprire più file dal Finder con "Apri con" invia un URL alla volta; dal secondo file compare la domanda Aggiungi/Sostituisci.
+- ~~Aprire più file dal Finder con "Apri con" invia un URL alla volta; dal secondo file compare la domanda Aggiungi/Sostituisci.~~ Risolto con la scena `Window` unica: i file arrivano tutti insieme a `AppDelegate.application(_:open:)` (vedi “Unione con il set di foto” sotto).
 - Non provati nell'app: Sostituisci con modifiche non esportate, import di soli file illeggibili, rimozione dell'ultima foto, export nella cartella degli originali con nome coincidente, selezione più veloce del decode, VoiceOver e Riduci movimento a schermo. Coperti dai test model indicati sopra, tranne VoiceOver e Riduci movimento.
 
 ## Shell HIG (ADR-013) — 12 novembre 2026
@@ -276,3 +276,44 @@ Con il fit numerico compilato, entrambi i job successivi sono arrivati a `Editor
 Verifiche locali dopo il refactoring: **38 test passati**, `swift test --enable-code-coverage`, build release `./scripts/build-app.sh` e `git diff --check` riusciti. Non è installata localmente la toolchain Xcode 16.4: la conferma con quella versione richiede il check remoto.
 
 Collaudo su nuova copia isolata `.build/SocialFrameCICanvas.app`, ID `it.socialframe.cicanvas`, senza modificare la sessione `SocialFrame UX Final` dell'utente. Aperto `horizon-level.png` 1024×768; zoom digitato a 2×, spostamento tramite azione accessibile del canvas e due undo distinti fino a 1×; clone attivato, scelta sorgente, spostamento destinazione e applicazione tramite azioni accessibili, con contatore di un timbro. Export dal dialogo completato in `.build/ci-canvas-smoke.jpg`, stato 1080×1350 px. Restano i limiti già elencati per trackpad fisico, fluidità, VoiceOver completo e macOS minimo; questa prova non è un XCUITest.
+
+## Blocco all'apertura di più foto dalla scheda SD
+
+Segnalazione: dopo la nuova shell (cb7cf1c) l'app si bloccava aprendo più foto dalla scheda SD Fujifilm (exFAT, JPG 4160×6240 e RAF). Il motore non è la causa: misurati circa 0,1–0,2 s per decodificare un JPG da 17 MB e 0,8 s per un RAF, con il main thread mai fermo oltre 130 ms nel test del model.
+
+Causa riprodotta nell'app reale aprendo più file insieme (`open -a … file…`, equivalente a Apri con / trascinamento sull'icona nel Dock): `WindowGroup` creava una finestra per ogni file, tutte sullo stesso `EditorModel`/`EditorViewState`, ripristinate anche al riavvio. Con 20 file: 4+ finestre, CPU ~50% per oltre 20 s, campione del main thread occupato per circa il 90% in aggiornamenti del grafo SwiftUI e layout delle finestre; con una modifica non esportata, una finestra di conferma per finestra, sovrapposte. Inoltre `importTask?.cancel()` non fermava la decodifica in `Task.detached`: ogni richiesta leggeva l'intero file.
+
+Correzione: scena `Window` unica; un solo worker di import che decodifica l'ultima richiesta (come l'anteprima, ADR-008), scarta i risultati e gli errori già superati. Test `ImportBurstTests`: 20 aperture consecutive producono al più 2 decodifiche, mostrano solo l'ultimo file e nessun errore di un file sostituito.
+
+Collaudo nella build `.build/SocialFrame.app` con 20 file della scheda: una sola finestra, CPU a riposo entro ~2 s; con modifica pendente una sola conferma, “Scarta modifiche e apri” carica la nuova foto. Con la scena `Window`, SwiftUI consegna a `onOpenURL` un solo URL per apertura multipla: si apre una foto, le altre sono ignorate. Non provato il trascinamento diretto di più file sul canvas (usa già solo il primo URL) né il pannello Apri, che non consente selezione multipla. Non è un XCUITest.
+
+## Reattività del trascinamento della foto
+
+Segnalazione: trascinando la foto l'inquadratura segue in ritardo e accanto a “Originale caricato” lampeggia l'indicatore di attività.
+
+Misure (JPG Fujifilm 4160×6240 dalla scheda SD, zoom 200%, copia isolata `.build/SocialFramePerf.app`, ID `it.socialframe.perf`, trascinamenti sintetici con computer use e `sample`):
+
+- Il rendering non è il collo di bottiglia per i JPG: nel model 120 eventi di pan a 120 Hz producono 120 fotogrammi; un fotogramma 1400 px costa circa 1,6–3 ms.
+- Il main thread era occupato quasi sempre (76 campioni liberi su 3857). L'indicatore nella barra di stato compariva e scompariva a ogni fotogramma, cambiando l'altezza del canvas (739↔742 pt), quindi `fitScale`, `viewState` e il layout dell'intera finestra (`NSDisplayCycleFlush` 1199 campioni).
+- `EditorCommands` osservava l'intero `EditorModel`: ogni evento ricostruiva scena e barra dei menu.
+
+Correzioni: posto fisso per l'indicatore; `isRendering` non è più pubblicato e l'indicatore (`showsRenderProgress`) compare solo per rendering oltre 200 ms; i menu leggono `EditorMenuState`, che pubblica solo quando cambiano i valori che usano. Dopo: 2157 campioni liberi su 4575 nella stessa sequenza, layout 272 campioni. Test `PanResponsivenessTests`: nessun lampeggio dell'indicatore con rendering veloci; i menu non pubblicano a ogni evento ma seguono annulla/ripristina.
+
+Limiti: la latenza evento→fotogramma con i trascinamenti sintetici (5–10 eventi) è troppo rumorosa per un confronto (~135 ms mediana in entrambe le build) e non è un dato di trackpad fisico. Resta il ricalcolo di `EditorView` a ogni modifica del model (circa 420 campioni), che richiede di separare canvas, sidebar e inspector. La build con la filmstrip in uso dall'utente non è stata misurata.
+
+RAF (stesso scatto, 6240×4160): ogni fotogramma ricompone il RAW, circa 760 ms. Misurate le alternative: `kCGImageSourceShouldCacheImmediately` 500 ms (inutile); proxy 2048 px 2 ms (1 s di preparazione, qualità limitata oltre circa 1,5× di zoom); RAW sviluppato una volta in bitmap a piena risoluzione 12 ms (1,1 s e 103 MB all'import). Implementate entrambe (ADR-015). Con lo stesso RAF, trascinamento simulato a 120 Hz nel model (build release): 120 fotogrammi su 120 eventi sia a zoom 1 (proxy) sia a zoom 3 (originale sviluppato), contro circa 15 prima. Import: JPG 0,12–0,15 s, RAF 2–3,3 s (sviluppo 1,1 s, proxy 0,24 s). Test `PreviewProxyTests`: proxy solo oltre 3072 px, stessa inquadratura dell'originale (differenza media sotto 1,5 livelli su un gradiente), originale oltre la densità del proxy (byte identici), export identico all'originale e diverso dal proxy su un campione a righe di un pixel.
+
+Collaudo nella copia isolata con `DSCF0898.RAF` e `DSCF0899.RAF`: anteprima corretta all'apertura, sostituzione senza conferma quando non ci sono modifiche. In un primo avvio la stessa copia ha mostrato per un istante una fascia bianca irregolare in basso e una modifica non esportata che nessuna azione di collaudo aveva prodotto; tre riaperture pulite e il controllo dei pixel nel model (nessuna fascia, nessuna modifica dopo l'import) non l'hanno riprodotta. Tre ulteriori avvii con la stessa sequenza dello script (build, avvio diretto del binario, `open -a` con il RAF) sono risultati puliti. La causa non è stata identificata; la finestra di collaudo compare davanti sullo schermo dell'utente e un clic involontario è possibile ma non dimostrato. Da ricontrollare se ricompare.
+
+Nella stessa copia, con `DSCF0898.RAF`: zoom 200%, trascinamento, Modifica ▸ Annulla dalla barra dei menu riporta l'inquadratura precedente (comandi guidati da `EditorMenuState`). Export dal pannello File ▸ Esporta… in `~/Documents/socialframe-raf-export-check.jpg`: controllo `sips` **1080×1350, sRGB IEC61966-2.1**, stato “Esportato …”. Confronto export RAF prima/dopo in ADR-015. Non verificati: trackpad fisico, memoria con più RAF aperti in sequenza.
+
+### Unione con il set di foto (ADR-014) — 20 novembre 2026
+
+Il set di foto è arrivato su `main` mentre questi rami erano aperti. Nell'unione:
+
+- Resta la scena `Window` unica (con `WindowGroup` ogni file aperto dal Finder creava una finestra sullo stesso model). Su `Window`, `onOpenURL` riceve solo il primo file: le aperture dal Finder passano ora per `AppDelegate.application(_:open:)`, che consegna tutti i file al set in un solo import e li conserva se arrivano prima che la finestra colleghi il model. Test `FinderOpenTests`.
+- Il worker di import a foto singola e `ImportBurstTests` sono stati sostituiti dall'import del set di `main`; il resto della correzione del blocco (finestra unica) rimane.
+- `EditorMenuState` copre anche Esporta tutto, Foto precedente/successiva e Rimuovi dal set.
+- Le miniature del set aprono i file con `preparesForEditing: false`: nessuno sviluppo RAW né proxy per foto che non entrano nell'editor.
+
+Collaudo nella copia isolata `it.socialframe.perf` con la scheda SD: `open -a` con quattro file (JPG e RAF) apre una sola finestra con un set di quattro foto nell'ordine (“Foto nel set: 4 · aggiunte: 4”), miniatura RAF presente; selezione del RAF dalla pellicola; Immagine ▸ Foto successiva dal menu passa alla foto 3 di 4; con il set aperto, `open -a` con altri due file mostra una sola domanda Aggiungi/Sostituisci e Aggiungi porta il set a sei foto. Suite completa: 70 test. Non ripetuti dopo l'unione: trascinamento sintetico con `sample` ed export RAF dal pannello.

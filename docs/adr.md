@@ -1,5 +1,15 @@
 # Decisioni architetturali (ADR)
 
+## ADR-015 — Proxy di anteprima e RAW sviluppato una volta
+
+Un RAW letto da ImageIO veniva sviluppato di nuovo a ogni rendering: circa 760 ms per fotogramma su un RAF Fujifilm da 26 MP, con un trascinamento a circa 8 fotogrammi su 120 eventi. `ImageDocument` ora sviluppa il RAW una sola volta all'import, in una bitmap Display P3 a 8 bit e piena risoluzione (circa 1,1 s e 100 MB per 26 MP, fuori dal MainActor). Anteprima ed export usano gli stessi pixel sviluppati, con le impostazioni RAW predefinite di ImageIO. Misura su due RAF esportati in PNG 1080×1350 (zoom 1 e 2,5): rispetto a uno sviluppo a 16 bit, la bitmap P3 a 8 bit differisce in media di 0,09–0,19 livelli (massimo 2); una bitmap sRGB a 8 bit taglierebbe i colori fuori gamut (fino a 37 livelli). Rispetto all'export precedente la differenza media è 0,5–1,2 livelli, con picchi locali fino a circa 100 sui dettagli fini: il percorso precedente sviluppava il RAW a risoluzione ridotta per le uscite piccole, quello nuovo a piena risoluzione e poi riduce. Il confronto visivo del blocco più diverso mostra stessi colori, nessuna posterizzazione e dettagli leggermente più nitidi. `kCGImageSourceShouldCacheImmediately` è stato misurato e non basta (circa 500 ms per fotogramma).
+
+Per le foto con lato lungo oltre 3072 px l'import prepara anche un proxy: copia ridotta con Lanczos a 3072 px, riportata all'estensione dell'originale. `render`, `panned` e ritaglio restano un unico percorso geometrico; cambia solo la densità dei pixel. L'anteprima (`allowProxy`) usa il proxy solo se ha almeno i pixel per pixel sorgente che il fotogramma richiede, altrimenti torna all'originale: con i preset attuali il proxy serve fino a circa 1,8× di zoom. Anche Vista 100% segue la stessa regola: il proxy compare solo se ha almeno un pixel per pixel di output. Export e autolivellamento non lo usano mai, quindi il file esportato non cambia. Il proxy costa circa 25 MB e 0,1–0,25 s all'import.
+
+Per i JPG il proxy non accelera il rendering (l'originale decodificato costa già 1,6–3 ms per fotogramma); serve soprattutto ai RAW e ai file molto grandi. Il ritardo del trascinamento sui JPG dipendeva dall'interfaccia: vedi la sezione corrispondente di `docs/verifica.md`.
+
+Le miniature del set (ADR-014) aprono il file senza sviluppare il RAW né preparare il proxy (`preparesForEditing: false`): servono un solo rendering piccolo. Solo la foto attiva paga sviluppo e proxy, a ogni selezione nella pellicola (per un RAF circa 2–3 s invece di 0,8 s, in cambio di un trascinamento fluido).
+
 ## ADR-014 — Set di foto in memoria, pellicola ed Esporta tutto
 
 **Stato:** accettato il 18 novembre 2026. Emenda ADR-005: l'esportazione in blocco entra nel perimetro; la persistenza di progetti e sessioni resta esclusa.

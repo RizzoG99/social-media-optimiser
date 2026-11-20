@@ -24,23 +24,35 @@ public enum SocialCoreError: Error, Equatable, LocalizedError {
 /// Imports are limited to 512 MB and 120 megapixels (and 32,768 pixels per side).
 public final class ImageDocument {
     let image: CIImage
+    /// Copia ridotta per l'anteprima, riportata all'estensione dell'originale: stessa geometria,
+    /// solo meno pixel. `nil` quando l'originale non supera già il lato del proxy (ADR-015).
+    let proxy: CIImage?
+    /// Pixel del proxy per pixel dell'originale (1 senza proxy).
+    let proxyDensity: Double
     let sourceURL: URL?
     /// Dimensions after EXIF orientation is applied.
     public let pixelWidth: Int
     public let pixelHeight: Int
+    /// Lato lungo del proxy: con i preset attuali resta sufficiente fino a circa 1,8× di zoom.
+    static let proxyMaxSide = 3072
+    private static let proxyContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
+    /// `true` se l'anteprima può usare il proxy.
+    public var hasProxy: Bool { proxy != nil }
 
-    public convenience init(url: URL) throws {
+    /// With `preparesForEditing` false the RAW is not developed and no proxy is built:
+    /// enough for a single small render such as a thumbnail.
+    public convenience init(url: URL, preparesForEditing: Bool = true) throws {
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
         guard let size, size <= 512_000_000 else { throw SocialCoreError.tooLarge }
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        try self.init(data: data, sourceURL: url)
+        try self.init(data: data, sourceURL: url, preparesForEditing: preparesForEditing)
     }
 
-    public convenience init(data: Data) throws {
-        try self.init(data: data, sourceURL: nil)
+    public convenience init(data: Data, preparesForEditing: Bool = true) throws {
+        try self.init(data: data, sourceURL: nil, preparesForEditing: preparesForEditing)
     }
 
-    private init(data: Data, sourceURL: URL?) throws {
+    private init(data: Data, sourceURL: URL?, preparesForEditing: Bool) throws {
         guard data.count <= 512_000_000 else { throw SocialCoreError.tooLarge }
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -49,13 +61,44 @@ public final class ImageDocument {
               width > 0, height > 0 else { throw SocialCoreError.invalidImage }
         guard width <= 32768, height <= 32768 else { throw SocialCoreError.sideTooLong }
         guard width <= 120_000_000 / height else { throw SocialCoreError.tooLarge }
-        guard let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw SocialCoreError.invalidImage }
+        guard var cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw SocialCoreError.invalidImage }
+        // Un RAW restituito da ImageIO viene sviluppato di nuovo a ogni rendering (circa 0,8 s
+        // per 26 MP): si sviluppa una volta qui, e anteprima ed export usano gli stessi pixel.
+        if preparesForEditing, let type = CGImageSourceGetType(source).flatMap({ UTType($0 as String) }), type.conforms(to: .rawImage) {
+            cg = try Self.developed(cg)
+        }
         let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.int32Value ?? 1
         let oriented = CIImage(cgImage: cg).oriented(forExifOrientation: (1...8).contains(orientation) ? orientation : 1)
         let extent = oriented.extent.integral
         guard extent.width > 0, extent.height > 0 else { throw SocialCoreError.invalidImage }
         image = oriented.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
         pixelWidth = Int(extent.width); pixelHeight = Int(extent.height); self.sourceURL = sourceURL
+        (proxy, proxyDensity) = preparesForEditing ? try Self.makeProxy(of: image, width: pixelWidth, height: pixelHeight) : (nil, 1)
+    }
+
+    private static func developed(_ raw: CGImage) throws -> CGImage {
+        guard let space = CGColorSpace(name: CGColorSpace.displayP3),
+              let context = CGContext(data: nil, width: raw.width, height: raw.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw SocialCoreError.invalidImage }
+        context.draw(raw, in: CGRect(x: 0, y: 0, width: raw.width, height: raw.height))
+        guard let bitmap = context.makeImage() else { throw SocialCoreError.invalidImage }
+        return bitmap
+    }
+
+    /// Riduce con Lanczos (filtrato, senza aliasing) e riporta la copia all'estensione
+    /// dell'originale, così `render`, `panned` e ritaglio non cambiano.
+    private static func makeProxy(of image: CIImage, width: Int, height: Int) throws -> (CIImage?, Double) {
+        let longSide = max(width, height)
+        guard longSide > proxyMaxSide else { return (nil, 1) }
+        let factor = Double(proxyMaxSide) / Double(longSide)
+        let pw = max(1, Int((Double(width) * factor).rounded())), ph = max(1, Int((Double(height) * factor).rounded()))
+        let reduced = image.clampedToExtent().applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: Double(ph) / Double(height), kCIInputAspectRatioKey: (Double(pw) / Double(width)) / (Double(ph) / Double(height))
+        ])
+        guard let cg = proxyContext.createCGImage(reduced, from: CGRect(x: 0, y: 0, width: pw, height: ph),
+                                                  format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!) else { throw SocialCoreError.renderFailed }
+        let restored = CIImage(cgImage: cg).transformed(by: CGAffineTransform(scaleX: Double(width) / Double(pw), y: Double(height) / Double(ph)))
+        return (restored, min(Double(pw) / Double(width), Double(ph) / Double(height)))
     }
 }
 
@@ -77,8 +120,10 @@ public final class ImageRenderer {
 
     /// Renders exactly the preset size, or fits inside `maxPixelSize` without upscaling
     /// when supplied. The crop is identical at either resolution.
+    /// With `allowProxy` the reduced copy is used when it has at least as many pixels as the
+    /// frame needs; exports never pass it.
     public func render(document: ImageDocument, preset: Preset, edit: EditState,
-                       maxPixelSize: Int? = nil) throws -> CGImage {
+                       maxPixelSize: Int? = nil, allowProxy: Bool = false) throws -> CGImage {
         guard preset.width > 0, preset.height > 0, preset.width <= 32768, preset.height <= 32768, preset.width <= 40_000_000 / preset.height,
               maxPixelSize.map({ $0 > 0 }) ?? true else { throw SocialCoreError.invalidDimensions }
         guard edit.panX.isFinite, edit.panY.isFinite, edit.zoom.isFinite, edit.zoom >= 1,
@@ -98,7 +143,10 @@ public final class ImageRenderer {
         let limitY = max(0, sh / 2 - halfH / scale)
         let dx = min(limitX, max(-limitX, edit.panX * sw))
         let dy = min(limitY, max(-limitY, edit.panY * sh))
-        var image = document.image.clampedToExtent().transformed(by: CGAffineTransform(translationX: -sw / 2 - dx, y: -sh / 2 - dy))
+        // Pixel di output per pixel sorgente nel fotogramma richiesto.
+        let density = scale * Double(w) / ow
+        let source = allowProxy ? Self.source(for: document, density: density) : document.image
+        var image = source.clampedToExtent().transformed(by: CGAffineTransform(translationX: -sw / 2 - dx, y: -sh / 2 - dy))
         image = image.transformed(by: CGAffineTransform(rotationAngle: angle))
         image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         image = image.transformed(by: CGAffineTransform(translationX: ow / 2, y: oh / 2))
@@ -132,6 +180,13 @@ public final class ImageRenderer {
         image = image.transformed(by: CGAffineTransform(scaleX: Double(w) / ow, y: Double(h) / oh))
         guard let result = context.createCGImage(image, from: CGRect(x: 0, y: 0, width: w, height: h), format: .RGBA8, colorSpace: colorSpace) else { throw SocialCoreError.renderFailed }
         return result
+    }
+
+    /// Il proxy quando basta alla densità richiesta (con un margine per gli arrotondamenti),
+    /// altrimenti l'originale: zoomando oltre il proxy l'anteprima torna alla piena risoluzione.
+    static func source(for document: ImageDocument, density: Double) -> CIImage {
+        guard let proxy = document.proxy, density <= document.proxyDensity * 1.001 else { return document.image }
+        return proxy
     }
 
     /// Applies an image drag measured as fractions of output width and height,

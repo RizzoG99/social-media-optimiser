@@ -223,9 +223,12 @@ struct EditorView: View {
     /// Solo stato breve, come la barra di stato del Finder: nessun controllo.
     private var statusBar: some View {
         HStack(spacing: 8) {
-            if model.isLoading || model.isImporting || model.isExporting || model.isRendering {
-                ProgressView().controlSize(.small)
-            }
+            // Posto fisso: comparendo e scomparendo, l'indicatore cambiava l'altezza della
+            // barra e quindi del canvas, rifacendo il layout dell'intera finestra a ogni fotogramma.
+            let busy = model.isLoading || model.isImporting || model.isExporting || model.showsRenderProgress
+            ProgressView().controlSize(.small)
+                .opacity(busy ? 1 : 0)
+                .accessibilityHidden(!busy)
             Text(model.status).lineLimit(1).truncationMode(.middle)
                 .contentTransition(.opacity)
                 .animation(interfaceAnimation, value: model.status)
